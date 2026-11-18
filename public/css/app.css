@@ -171,7 +171,7 @@ main{padding-bottom:24px}
 .time.hot,.time.hot .ic{color:var(--hot)}
 .mybid{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--surface2);border-radius:12px;padding:8px 12px;font-size:13px}
 .mybid b{font-variant-numeric:tabular-nums}
-.empty{text-align:center;padding:48px 24px;color:var(--muted)}
+.empty{text-align:center;padding:72px 24px;color:var(--muted);grid-column:1/-1;width:100%;max-width:560px;margin-inline:auto;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .empty svg{width:56px;height:56px;color:var(--line);stroke-width:1.2;margin-bottom:10px}
 .empty h4{font-family:var(--f-display);font-size:19px;color:var(--fg);margin:0 0 6px}
 .empty p{margin:0;font-size:14px}
@@ -453,3 +453,19 @@ select.inp{font-size:15px;padding:0 10px}
 }
 
 .view.calm *{animation:none!important}
+
+/* guided tour */
+.tour{position:fixed;inset:0;z-index:100}
+.tspot{position:fixed;border-radius:16px;box-shadow:0 0 0 100vmax rgba(4,10,20,.74);outline:3px solid var(--accent);outline-offset:0;transition:left .45s cubic-bezier(.2,.8,.2,1),top .45s cubic-bezier(.2,.8,.2,1),width .45s cubic-bezier(.2,.8,.2,1),height .45s cubic-bezier(.2,.8,.2,1);animation:tpulse 1.6s ease-in-out infinite;pointer-events:none}
+.tspot.none{left:50%;top:50%;width:0;height:0;outline:0;animation:none;box-shadow:0 0 0 100vmax rgba(4,10,20,.74)}
+@keyframes tpulse{0%,100%{outline-offset:0;outline-color:var(--accent)}50%{outline-offset:6px;outline-color:rgba(255,255,255,.55)}}
+.tcard{position:fixed;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:20px;padding:18px 18px 14px;box-shadow:0 24px 60px rgba(0,0,0,.45);opacity:0;transform:translateY(10px) scale(.97)}
+.tcard.in{opacity:1;transform:none;transition:opacity .3s,transform .35s cubic-bezier(.2,.9,.3,1.2)}
+.tbadge{display:inline-block;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-soft);padding:3px 10px;border-radius:99px;margin-bottom:8px}
+.tcard h3{margin:0 0 6px;font-family:var(--f-display);font-size:20px;line-height:1.2}
+.tcard p{margin:0 0 12px;font-size:14.5px;line-height:1.5;color:var(--muted)}
+.tdots{display:flex;gap:5px;margin-bottom:12px}.tdots i{height:5px;flex:1;border-radius:3px;background:var(--line);transition:background .3s}.tdots i.done{background:var(--accent);opacity:.5}.tdots i.on{background:var(--accent)}
+.tbtns{display:flex;align-items:center;gap:8px}.tbtns .sp{flex:1}
+.tbtns button{font-weight:600;font-size:14px;border-radius:12px;padding:9px 16px;min-height:40px}
+.tnext{background:var(--accent);color:var(--accent-fg,#fff)}.tback{background:var(--surface);border:1px solid var(--line)}.tskip{color:var(--muted);padding:9px 4px!important}
+@media (prefers-reduced-motion:reduce){.tspot{animation:none;transition:none}.tcard.in{transition:none}}

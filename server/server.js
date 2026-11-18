@@ -292,7 +292,11 @@ function createApp(opts = {}) {
 
   /* branch */
   route('POST', '/api/lots', async ({ user, body, res }) => {
-    need(user, 'branch'); limit('lot:' + user.id, 60, 3600000);
+    need(user, 'branch', 'admin'); limit('lot:' + user.id, 60, 3600000);
+    let orgId = user.id;
+    if (user.role === 'admin') { // an administrator posts a lot on behalf of one of the branches
+      const br = get("SELECT id FROM users WHERE id=? AND role='branch' AND status='active'", Number(body.orgId)); if (!br) fail(400, 'bad_branch'); orgId = br.id;
+    }
     const title = str(body.title, 3, 120, 'bad_title'), mode = body.mode === 'live' ? 'live' : 'sealed';
     const cat = CATS.includes(body.cat) ? body.cat : fail(400, 'bad_input'), src = SRCS.includes(body.src) ? body.src : fail(400, 'bad_input'), duty = DUTIES.includes(body.duty) ? body.duty : fail(400, 'bad_input');
     const price = int(body.price, 1, 1e11, 'bad_price'), step = mode === 'live' ? int(body.step, 1, 1e10, 'bad_step') : 0, days = int(body.days, 1, 30, 'bad_input');
@@ -300,9 +304,9 @@ function createApp(opts = {}) {
     const photos = Array.isArray(body.photos) ? body.photos.slice(0, 3).map(decodePhoto) : [];
     const id = tx(() => {
       const seq = get('SELECT COALESCE(MAX(seq),0)+1 n FROM lots').n, id = 'CH-' + (4100 + seq);
-      run('INSERT INTO lots(seq,id,org_id,title,descr,cat,mode,initial,price,step,end_at,src,ref,duty,photos,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', seq, id, user.id, title, descr, cat, mode, price, price, step, now() + days * DAY, src, ref, duty, photos.length, now());
+      run('INSERT INTO lots(seq,id,org_id,title,descr,cat,mode,initial,price,step,end_at,src,ref,duty,photos,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', seq, id, orgId, title, descr, cat, mode, price, price, step, now() + days * DAY, src, ref, duty, photos.length, now());
       photos.forEach((p, i) => run('INSERT INTO photos(lot_id,idx,mime,data) VALUES(?,?,?,?)', id, i, p.mime, p.buf));
-      audit(user, 'lot.create', id, title); return id;
+      audit(user, 'lot.create', id, title + (user.role === 'admin' ? ' (by admin)' : '')); return id;
     });
     notify(); send(res, 200, { id });
   });

@@ -111,6 +111,12 @@ test('chereta backend end to end', async (t) => {
   });
 
   await t.test('admin controls: lots, extend, cancel, bids, branches, bidders, settings, audit', async () => {
+    const kb0 = (await A('GET', '/api/admin/branches')).j.branches.find((b) => b.username === 'kality');
+    assert.equal((await A('POST', '/api/lots', { mode: 'sealed', price: 5000, title: 'Admin lot', cat: 'parts', src: 'seized', duty: 'incl', days: 1 })).j.error, 'bad_branch');
+    const al = (await A('POST', '/api/lots', { orgId: kb0.id, mode: 'sealed', price: 5000, title: 'Admin lot', cat: 'parts', src: 'seized', duty: 'incl', days: 1 }));
+    assert.equal(al.s, 200);
+    assert.equal((await anon('GET', '/api/state')).j.lots.find((l) => l.id === al.j.id).orgId, kb0.id);
+    assert.equal((await U1('POST', '/api/lots', { orgId: kb0.id, mode: 'sealed', price: 5000, title: 'Nope', cat: 'parts', src: 'seized', duty: 'incl', days: 1 })).s, 403);
     const id = (await B('POST', '/api/lots', { mode: 'sealed', price: 90000, title: 'Tires', cat: 'parts', src: 'uncleared', duty: 'incl', days: 1 })).j.id;
     assert.equal((await A('POST', '/api/admin/lots/' + id + '/extend', { hours: 24 })).s, 200);
     assert.equal((await U1('POST', '/api/lots/' + id + '/bid', { amount: 95000 })).s, 200);

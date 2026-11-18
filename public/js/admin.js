@@ -6,7 +6,7 @@ function dt(ts){return ts?new Date(ts).toLocaleString('en-GB',{day:'2-digit',mon
 function d0(ts){return ts?new Date(ts).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'-'}
 var ME=null, TAB='dashboard', CACHE={}, F={};
 var NAV=[['dashboard','Dashboard'],['branches','Branches'],['lots','Lots'],['orders','Sales and payments'],['bidders','Bidders'],['posts','News and tenders'],['staff','Administrators'],['settings','Settings'],['audit','Activity log']];
-var ERR={bad_login:'Wrong username or password.',too_many:'Too many attempts. Wait a few minutes.',suspended:'Account suspended.',username_taken:'That username is already used.',bad_username:'Username needs 3 to 30 characters (letters, numbers, dot, dash) and at least one letter.',bad_password:'Password needs 8 or more characters.',bad_name:'Enter a name (2 or more characters).',bad_title:'Title is too short.',bad_input:'Please check the values entered.',has_lots:'This branch has lots. Suspend it instead of deleting.',forbidden:'Not allowed.',self:'You cannot do that to your own account.',not_found:'Not found.',closed:'That lot is already closed.',server:'Something went wrong.'};
+var ERR={bad_branch:'Choose a branch to post this lot for.',bad_price:'Enter an initial price above 0.',bad_step:'Enter a minimum raise above 0 for a live lot.',bad_photo:'That photo could not be used.',photo_big:'A photo is too large.',bad_login:'Wrong username or password.',too_many:'Too many attempts. Wait a few minutes.',suspended:'Account suspended.',username_taken:'That username is already used.',bad_username:'Username needs 3 to 30 characters (letters, numbers, dot, dash) and at least one letter.',bad_password:'Password needs 8 or more characters.',bad_name:'Enter a name (2 or more characters).',bad_title:'Title is too short.',bad_input:'Please check the values entered.',has_lots:'This branch has lots. Suspend it instead of deleting.',forbidden:'Not allowed.',self:'You cannot do that to your own account.',not_found:'Not found.',closed:'That lot is already closed.',server:'Something went wrong.'};
 function API(m,u,b){return fetch(u,{method:m,credentials:'same-origin',headers:{'Content-Type':'application/json','X-Requested-With':'chereta'},body:b?JSON.stringify(b):undefined}).then(function(r){return r.json().catch(function(){return {}}).then(function(j){if(!r.ok){var e=new Error(j.error||'server');e.code=j.error||'server';e.status=r.status;throw e}return j})})}
 function em(e){return ERR[e.code]||('Error: '+e.code)}
 var tt;function toast(m,bad){var t=$('#toast');t.textContent=m;t.className='toast show'+(bad?' bad':'');clearTimeout(tt);tt=setTimeout(function(){t.className='toast'},2800)}
@@ -49,7 +49,7 @@ branches:function(){topAct('Add branch',addBranch);guard(API('GET','/api/admin/b
   $('#main').innerHTML='<p class="note" style="margin-top:0">Each branch signs in at the public site (menu: For customs branches) with the username and password you create here.</p>'+
   table([['Branch'],['Username'],['Status'],['Lots',1],['Open',1],['Last sign-in'],['']],r.branches.map(function(b){
    return '<tr><td><b>'+esc(b.name)+'</b></td><td>'+esc(b.username)+'</td><td>'+stTag(b.status)+'</td><td class="num">'+b.lots+'</td><td class="num">'+b.open+'</td><td>'+dt(b.lastLogin)+'</td><td><div class="acts"><button data-ba="rename" data-id="'+b.id+'">Rename</button><button data-ba="reset" data-id="'+b.id+'">Reset password</button><button data-ba="'+(b.status==='active'?'suspend':'activate')+'" data-id="'+b.id+'" class="'+(b.status==='active'?'d':'')+'">'+(b.status==='active'?'Suspend':'Activate')+'</button><button class="d" data-ba="del" data-id="'+b.id+'">Delete</button></div></td></tr>'}),'No branches yet. Tap Add branch to create the first login.')})},
-lots:function(){guard(API('GET','/api/admin/lots')).then(function(r){CACHE.lots=r.lots;drawLots()})},
+lots:function(){topAct('Post auction',postLot);Promise.all([guard(API('GET','/api/admin/lots')),guard(API('GET','/api/admin/branches'))]).then(function(a){CACHE.lots=a[0].lots;CACHE.branches=a[1].branches;drawLots()})},
 orders:function(){topAct('Export CSV',function(){location.href='/api/admin/orders.csv'});guard(API('GET','/api/admin/orders')).then(function(r){
   $('#main').innerHTML=table([['Lot'],['Branch'],['Buyer'],['Winning bid',1],['Fee',1],['Total',1],['Due'],['Status']],r.orders.map(function(o){return '<tr><td><b>'+esc(o.title)+'</b><br><span class="note">'+esc(o.lotId)+'</span></td><td>'+esc(o.branch)+'</td><td>'+esc(o.buyer)+'<br><span class="note">+251 '+esc(o.buyerPhone)+'</span></td><td class="num">'+fmt(o.amount)+'</td><td class="num">'+fmt(o.fee)+'</td><td class="num">'+fmt(o.total)+'</td><td>'+d0(o.dueAt)+'</td><td>'+stTag(o.status)+'</td></tr>'}),'No sales yet. Orders appear here when lots close with a winner.')})},
 bidders:function(){guard(API('GET','/api/admin/users?role=bidder')).then(function(r){
@@ -75,6 +75,34 @@ function drawLots(){
 document.addEventListener('input',function(e){if(e.target.id==='lotq'){F.lotq=e.target.value;F.focus=1;drawLots()}});
 document.addEventListener('change',function(e){if(e.target.id==='lotst'){F.lotst=e.target.value;F.focus=0;drawLots()}});
 
+
+var CATS=[['vehicle','Vehicles'],['machinery','Machinery'],['electronics','Electronics'],['furniture','Furniture'],['power','Power'],['parts','Parts'],['goods','Goods']],PH=[];
+function shrink(file){return new Promise(function(res,rej){var u=URL.createObjectURL(file),im=new Image();im.onload=function(){var k=Math.min(1,900/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*k));c.height=Math.max(1,Math.round(im.height*k));c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',.7))};im.onerror=function(){URL.revokeObjectURL(u);rej()};im.src=u})}
+function drawPh(){var e=$('#plPh');if(e)e.innerHTML=PH.map(function(d,i){return '<span style="position:relative;display:inline-block;margin:0 8px 8px 0"><img src="'+d+'" alt="" style="width:74px;height:74px;object-fit:cover;border-radius:10px;border:1px solid var(--line)"><button type="button" data-rmph="'+i+'" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;border-radius:50%;background:var(--bad);color:#fff;font-size:13px">&times;</button></span>'}).join('')}
+function postLot(){
+  PH=[];var br=(CACHE.branches||[]).filter(function(b){return b.status==='active'});
+  var go=function(list){
+    if(!list.length){modal('<h2>Post an auction</h2><p>Create at least one active branch first. Every lot belongs to a branch.</p><div class="mbtns"><button class="btn" data-m="cancel">Close</button></div>');return}
+    var opt=function(a,sel){return a.map(function(x){return '<option value="'+x[0]+'">'+x[1]+'</option>'}).join('')};
+    mform('Post an auction','<label for="plOrg">Branch</label><select class="inp" id="plOrg">'+list.map(function(b){return '<option value="'+b.id+'">'+esc(b.name)+'</option>'}).join('')+'</select>'+
+     '<label for="plT">Lot title</label><input class="inp" id="plT" maxlength="120">'+
+     '<div class="two"><div><label for="plC">Category</label><select class="inp" id="plC">'+opt(CATS)+'</select></div><div><label for="plM">Auction type</label><select class="inp" id="plM"><option value="sealed">Sealed bid</option><option value="live">Live bidding</option></select></div></div>'+
+     '<div class="two"><div><label for="plP">Initial price (ETB)</label><input class="inp" id="plP" inputmode="numeric"></div><div id="plSW" hidden><label for="plS">Minimum raise (ETB)</label><input class="inp" id="plS" inputmode="numeric"></div></div>'+
+     '<div class="two"><div><label for="plD">Runs for</label><select class="inp" id="plD">'+[1,3,7,14,30].map(function(n){return '<option value="'+n+'"'+(n===7?' selected':'')+'>'+n+' day'+(n>1?'s':'')+'</option>'}).join('')+'</select></div><div><label for="plSrc">Goods source</label><select class="inp" id="plSrc"><option value="uncleared">Uncleared goods</option><option value="seized">Seized goods</option><option value="abandoned">Abandoned goods</option></select></div></div>'+
+     '<div class="two"><div><label for="plR">Case or declaration reference</label><input class="inp" id="plR" maxlength="60"></div><div><label for="plDu">Duty and tax</label><select class="inp" id="plDu"><option value="incl">Included in the winning price</option><option value="buyer">Paid by the buyer</option></select></div></div>'+
+     '<label for="plDe">Description</label><textarea class="inp" id="plDe" maxlength="1000"></textarea>'+
+     '<label>Photos (up to 3)</label><div id="plPh"></div><input type="file" id="plF" accept="image/*" multiple>','Publish auction',function(){
+      var m=$('#plM').value,num=function(id){return Number(($(id).value||'').replace(/[^\d]/g,''))||0};
+      return guard(API('POST','/api/lots',{orgId:Number($('#plOrg').value),title:$('#plT').value.trim(),cat:$('#plC').value,mode:m,price:num('#plP'),step:m==='live'?num('#plS'):0,days:Number($('#plD').value),src:$('#plSrc').value,duty:$('#plDu').value,ref:$('#plR').value.trim(),desc:$('#plDe').value.trim(),photos:PH})).then(function(r){closeModal();toast('Auction published: '+r.id);go('lots')})});
+  };
+  if(br.length)go(br);else guard(API('GET','/api/admin/branches')).then(function(r){CACHE.branches=r.branches;go(r.branches.filter(function(b){return b.status==='active'}))});
+}
+document.addEventListener('change',function(e){
+  if(e.target.id==='plM'){$('#plSW').hidden=e.target.value!=='live'}
+  if(e.target.id==='plF'){var fs=Array.prototype.slice.call(e.target.files||[]).slice(0,3-PH.length);e.target.value='';fs.reduce(function(p,f){return p.then(function(){return shrink(f).then(function(d){PH.push(d);drawPh()}).catch(function(){})})},Promise.resolve())}
+});
+document.addEventListener('click',function(e){var r=e.target.closest('[data-rmph]');if(r){PH.splice(Number(r.getAttribute('data-rmph')),1);drawPh()}});
+
 /* ---------- modals ---------- */
 function mform(title,body,okLabel,onOk,extra){
   modal('<h2>'+title+'</h2>'+body+'<div class="err" id="merr"></div><div class="mbtns"><button class="btn ghost" data-m="cancel">Cancel</button><button class="btn'+(extra==='danger'?' danger':'')+'" id="mok">'+okLabel+'</button></div>');
@@ -86,6 +114,34 @@ function showCred(title,name,user,pw){
   $('#cpy').onclick=function(){var t=(name?'Name: '+name+'\n':'')+'Username: '+user+'\nPassword: '+pw+'\nSign in at: '+location.origin+'/';(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){toast('Copied')},function(){toast('Select the text and copy it',true)})}
 }
 function genpw(){var a='abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789',o='',r=new Uint32Array(12);crypto.getRandomValues(r);for(var i=0;i<12;i++)o+=a[r[i]%a.length];return o}
+
+var PHOTOS=[];
+function shrink(file){return new Promise(function(res,rej){var u=URL.createObjectURL(file),im=new Image();im.onload=function(){var k=Math.min(1,900/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.width*k));c.height=Math.max(1,Math.round(im.height*k));c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',.7))};im.onerror=function(){URL.revokeObjectURL(u);rej()};im.src=u})}
+function photoHTML(){return PHOTOS.map(function(d,i){return '<span class="ph"><img alt="" src="'+d+'"><button type="button" data-rmph="'+i+'" aria-label="Remove photo">&times;</button></span>'}).join('')+(PHOTOS.length<3?'<label class="addph" for="pf">+ Photo</label>':'')+'<input type="file" id="pf" accept="image/*" multiple hidden>'}
+function postLot(){
+  var act=(CACHE.branches||[]).filter(function(b){return b.status==='active'});
+  if(!act.length){toast('Create an active branch first (Branches page).',true);return}
+  PHOTOS=[];
+  function sel(id,opts){return '<select class="inp" id="'+id+'">'+opts.map(function(o){return '<option value="'+o[0]+'">'+esc(o[1])+'</option>'}).join('')+'</select>'}
+  mform('Post an auction','<label for="lb">Branch that owns this lot</label>'+sel('lb',act.map(function(b){return [b.id,b.name]}))+
+   '<label for="lt">Lot title</label><input class="inp" id="lt" maxlength="120" placeholder="e.g. Toyota Hilux 2016, uncleared">'+
+   '<div class="two"><div><label for="lc">Category</label>'+sel('lc',[['vehicle','Vehicles'],['machinery','Machinery'],['electronics','Electronics'],['furniture','Furniture'],['power','Power'],['parts','Parts'],['goods','Goods'],['houses','Houses']])+'</div><div><label for="lm">Auction type</label>'+sel('lm',[['sealed','Sealed bid'],['live','Live bidding']])+'</div></div>'+
+   '<div class="two"><div><label for="ls">Goods source</label>'+sel('ls',[['uncleared','Uncleared goods'],['seized','Seized goods'],['abandoned','Abandoned goods']])+'</div><div><label for="ld">Duty and tax</label>'+sel('ld',[['incl','Included in winning price'],['buyer','Paid by the buyer']])+'</div></div>'+
+   '<label for="lr">Case or declaration reference</label><input class="inp" id="lr" maxlength="60">'+
+   '<div class="two"><div><label for="plp">Initial price (ETB)</label><input class="inp" id="plp" inputmode="numeric"></div><div id="lsw" hidden><label for="lsp">Minimum raise (ETB)</label><input class="inp" id="lsp" inputmode="numeric"></div></div>'+
+   '<label for="ln">Runs for</label>'+sel('ln',[[1,'1 day'],[3,'3 days'],[7,'7 days'],[14,'14 days'],[30,'30 days']]).replace('<option value="7">','<option value="7" selected>')+
+   '<label for="le">Description</label><textarea class="inp" id="le" maxlength="1000"></textarea>'+
+   '<label>Photos (up to 3)</label><div class="phs" id="phs">'+photoHTML()+'</div>','Publish auction',function(){
+    var live=$('#lm').value==='live',price=Number($('#plp').value.replace(/[^\d]/g,''))||0,step=Number(($('#lsp').value||'').replace(/[^\d]/g,''))||0;
+    if($('#lt').value.trim().length<3)throw {message:'Enter a lot title.'};
+    if(price<1)throw {message:'Enter an initial price above 0.'};
+    if(live&&step<1)throw {message:'Enter a minimum raise above 0 for live bidding.'};
+    return guard(API('POST','/api/lots',{orgId:Number($('#lb').value),title:$('#lt').value.trim(),cat:$('#lc').value,mode:live?'live':'sealed',src:$('#ls').value,duty:$('#ld').value,ref:$('#lr').value.trim(),price:price,step:live?step:0,days:Number($('#ln').value),desc:$('#le').value.trim(),photos:PHOTOS})).then(function(r){closeModal();toast('Auction published: '+r.id);go('lots')},function(e){if(e.code==='photo_big')throw {message:'A photo is too large. Remove it or use a smaller one.'};throw e})});
+  $('#mbox').onchange=function(e){if(e.target.id==='lm')$('#lsw').hidden=e.target.value!=='live';
+    if(e.target.id==='pf'){var fs=Array.prototype.slice.call(e.target.files).slice(0,3-PHOTOS.length);e.target.value='';fs.reduce(function(p,f){return p.then(function(){return shrink(f).then(function(d){PHOTOS.push(d);$('#phs').innerHTML=photoHTML()}).catch(function(){})})},Promise.resolve())}};
+  $('#mbox').oninput=function(e){if(e.target.id==='plp'||e.target.id==='lsp'){var n=Number(e.target.value.replace(/[^\d]/g,''))||0;e.target.value=n?fmt(n):''}};
+  $('#mbox').onclick=function(e){var r=e.target.closest('[data-rmph]');if(r){PHOTOS.splice(Number(r.getAttribute('data-rmph')),1);$('#phs').innerHTML=photoHTML()}};
+}
 function addBranch(){mform('Add a branch','<label for="bn">Branch name</label><input class="inp" id="bn" placeholder="e.g. Kality Customs Branch"><label for="bu">Username</label><input class="inp" id="bu" autocapitalize="none" placeholder="e.g. kality"><label for="bp">Password</label><input class="inp" id="bp" value="'+genpw()+'"><span class="note">Auto-generated. You can type your own (8 or more characters).</span>','Create branch',function(){
   var name=$('#bn').value.trim(),u=$('#bu').value.trim(),p=$('#bp').value;return guard(API('POST','/api/admin/branches',{name:name,username:u,password:p})).then(function(r){toast('Branch created');showCred('Branch created',r.name,r.username,r.password);go('branches')})})}
 function addStaff(){mform('Add an administrator','<label for="an">Full name</label><input class="inp" id="an"><label for="au">Username</label><input class="inp" id="au" autocapitalize="none"><label for="ap">Temporary password</label><input class="inp" id="ap" value="'+genpw()+'"><span class="note">They must change it at first sign-in.</span>','Create administrator',function(){

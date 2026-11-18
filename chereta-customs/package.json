@@ -1,0 +1,13 @@
+{
+  "name": "chereta-customs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chereta: online customs auctions website with a Commission admin console, branch logins, live and sealed bidding, English and Amharic.",
+  "engines": { "node": ">=22.5" },
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "test": "node --test server/server.test.js",
+    "seed": "node server/seed.js http://localhost:3000"
+  }
+}

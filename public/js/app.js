@@ -537,6 +537,7 @@ document.addEventListener('click',function(e){
     else if(n==='admin'){location.href='/admin.html'}
     else if(n==='account'){setTimeout(function(){showPanel(accountHTML)},300)}
     else if(n==='support'){setTimeout(function(){showPanel(supportHTML)},300)}
+    else if(n==='tutorials'){setTimeout(tourStart,350)}
     else setTimeout(function(){openInfo(n)},300); return}
   var act=t.closest('[data-act]'); if(act){var a=act.getAttribute('data-act');
     if(a==='close')closeSheet(); else if(a==='submit')submit(); else if(a==='menu')openDrawer(); else if(a==='closemenu')closeDrawer();
@@ -588,6 +589,93 @@ setInterval(function(){
   tickSheet(false);
   LOTS.forEach(function(l){if(l.status==='open'&&l.end<=n&&!S.poked[l.id]){S.poked[l.id]=1; setTimeout(load,2500); setTimeout(load,12000)}});
 },1000);
+
+/* ---------- guided tour (Tutorials) ---------- */
+Object.assign(T.en,{tour_skip:'Skip tour',tour_next:'Next',tour_back:'Back',tour_done:'Start bidding',tour_step:'Step {n} of {t}',
+ tt0:'Welcome to Chereta',td0:'This quick tour shows you how to find a lot and place a bid. It takes about a minute.',
+ tt1:'Find your way around',td1:'Use the menu to move between Home, Auctions, your Watchlist and My bids.',
+ tt2:'Search the auctions',td2:'Type a lot name, a lot number or a branch to find what you want.',
+ tt3:'Live or sealed',td3:'Live: everyone sees the price rise. Sealed: you send one private bid and the highest wins when the lot closes.',
+ tt4:'Every lot is a card',td4:'You see the branch, the price and the time left. Tap a card to open the lot.',
+ tt5:'Watch a lot',td5:'Tap the heart to follow a lot. It appears in your Watchlist.',
+ tt6:'Check the countdown',td6:'The timer shows how long is left. A last-minute live bid adds extra time, so nobody wins by the last second.',
+ tt7:'Place your bid',td7:'Type an amount at or above the minimum, or tap a quick button, then press the bid button.',
+ tt8:'Sign in to bid',td8:'Register with your name and phone number. Registering is free.',
+ tt9:'Switch language',td9:'Use English or Amharic at any time.',
+ tt10:'You are ready',td10:'When you win, the lot page shows what to pay and by when. Good luck!'});
+Object.assign(T.am,{tour_skip:'ጉብኝቱን ዝለል',tour_next:'ቀጣይ',tour_back:'ተመለስ',tour_done:'መጫረት ጀምር',tour_step:'ደረጃ {n} ከ {t}',
+ tt0:'እንኳን ወደ ጨረታ መጣህ',td0:'ይህ አጭር ጉብኝት ዕጣ እንዴት እንደምታገኝ እና እንደምትጫረት ያሳያል። ወደ አንድ ደቂቃ ይወስዳል።',
+ tt1:'በድር ጣቢያው ውስጥ መንቀሳቀስ',td1:'በመነሻ፣ በጨረታዎች፣ በክትትል እና በጨረታዬ መካከል ለመንቀሳቀስ ምናሌውን ተጠቀም።',
+ tt2:'ጨረታዎችን ፈልግ',td2:'የምትፈልገውን ለማግኘት የዕጣ ስም፣ የዕጣ ቁጥር ወይም ቅርንጫፍ ጻፍ።',
+ tt3:'ቀጥታ ወይም የታሸገ',td3:'ቀጥታ፦ ሁሉም ዋጋው ሲጨምር ያያል። የታሸገ፦ አንድ የግል ጨረታ ታስገባለህ፤ ዕጣው ሲዘጋ ከፍተኛው ያሸንፋል።',
+ tt4:'እያንዳንዱ ዕጣ አንድ ካርድ ነው',td4:'ቅርንጫፉን፣ ዋጋውን እና የቀረውን ጊዜ ታያለህ። ዕጣውን ለመክፈት ካርዱን ንካ።',
+ tt5:'ዕጣን ተከታተል',td5:'ዕጣን ለመከተል የልብ ምልክቱን ንካ። በክትትልህ ውስጥ ይታያል።',
+ tt6:'የሰዓት ቆጠራውን ተመልከት',td6:'ቆጣሪው የቀረውን ጊዜ ያሳያል። በመጨረሻ ደቂቃ የሚገባ የቀጥታ ጨረታ ተጨማሪ ጊዜ ይጨምራል።',
+ tt7:'ጨረታህን አስገባ',td7:'ከዝቅተኛው ያላነሰ መጠን ጻፍ ወይም ፈጣን ቁልፍ ንካ፣ ከዚያ የጨረታ ቁልፉን ተጫን።',
+ tt8:'ለመጫረት ግባ',td8:'በስምህ እና በስልክ ቁጥርህ ተመዝገብ። ምዝገባ ነጻ ነው።',
+ tt9:'ቋንቋ ቀይር',td9:'በማንኛውም ጊዜ እንግሊዝኛ ወይም አማርኛ ተጠቀም።',
+ tt10:'ዝግጁ ነህ',td10:'ስታሸንፍ የዕጣው ገጽ ምን እና መቼ እንደምትከፍል ያሳያል። መልካም ዕድል!'});
+var TOUR=null;
+function vis(el){if(!el)return false;var r=el.getBoundingClientRect(),cs=getComputedStyle(el);return r.width>0&&r.height>0&&cs.visibility!=='hidden'&&cs.display!=='none'}
+function tpick(sels){for(var i=0;i<sels.length;i++){var e=$(sels[i]);if(vis(e))return e}return null}
+function firstOpen(){return LOTS.filter(isOpen).sort(function(a,b){return a.end-b.end})[0]}
+var TSTEPS=[
+ {k:0},
+ {k:1,sel:['#dnav','.menu'],pre:function(){closeSheet();closeDrawer();if(S.tab!=='home')goTab('home')}},
+ {k:2,sel:['.search'],pre:function(){closeSheet();S.mode='all';S.org='all';S.cat='all';S.q='';if(S.tab!=='browse')goTab('browse')}},
+ {k:3,sel:['#modes'],pre:function(){}},
+ {k:4,sel:['#list .card'],pre:function(){}},
+ {k:5,sel:['#list .card .heart'],pre:function(){}},
+ {k:6,sel:['#segs','.pricebox'],pre:function(){var l=firstOpen();if(l&&S.open!==l.id)openSheet(l.id)},wait:520},
+ {k:7,sel:['.bidbox','#amt'],pre:function(){},wait:50},
+ {k:8,sel:['#signin'],pre:function(){closeSheet()},wait:380},
+ {k:9,sel:['#langtop','.menu'],pre:function(){}},
+ {k:10}
+];
+function tourStart(){
+  if(TOUR)tourEnd(true);
+  closeDrawer();closeSheet();
+  TOUR={i:-1,dir:1,steps:TSTEPS};
+  var o=document.createElement('div');o.id='tour';o.className='tour';o.innerHTML='<div class="tspot" id="tspot"></div><div class="tcard" id="tcard" role="dialog" aria-live="polite"></div>';
+  document.body.appendChild(o);document.body.style.overflow='hidden';
+  tourGo(1);
+}
+function tourEnd(silent){var o=$('#tour');if(o)o.parentNode.removeChild(o);TOUR=null;if(!silent){document.body.style.overflow='';closeSheet();try{localStorage.setItem('chereta-tour','1')}catch(e){}}}
+function tourGo(dir){
+  var t=TOUR;if(!t)return;t.dir=dir;var i=t.i+dir;
+  while(i>=0&&i<t.steps.length){var st=t.steps[i];
+    if(st.pre)st.pre();
+    if(st.sel){
+      // step needs a target; skip when no lot exists to point at
+      if((st.k===4||st.k===5||st.k===6||st.k===7)&&!firstOpen()){i+=dir;continue}
+    }
+    break}
+  if(i<0)i=0;if(i>=t.steps.length){tourEnd();return}
+  t.i=i;var step=t.steps[i];
+  setTimeout(function(){if(TOUR===t)tourShow(step)},step.wait||120);
+}
+function tourShow(step){
+  var t=TOUR;if(!t)return;var el=step.sel?tpick(step.sel):null;
+  if(el)el.scrollIntoView({block:el.closest('.sheet')?'nearest':'center',inline:'nearest'});
+  setTimeout(function(){if(TOUR===t)tourPlace(step,el)},el?160:0);
+}
+function tourPlace(step,el){
+  var t=TOUR;if(!t)return;var n=t.steps.length,k=step.k,c=$('#tcard'),sp=$('#tspot'),last=t.i===n-1;
+  c.innerHTML='<div class="tbadge">'+tr('tour_step').replace('{n}',t.i+1).replace('{t}',n)+'</div><h3>'+tr('tt'+k)+'</h3><p>'+tr('td'+k)+'</p>'+
+   '<div class="tdots">'+t.steps.map(function(x,j){return '<i class="'+(j===t.i?'on':j<t.i?'done':'')+'"></i>'}).join('')+'</div>'+
+   '<div class="tbtns">'+(last?'':'<button class="tskip" data-tour="skip">'+tr('tour_skip')+'</button>')+'<span class="sp"></span>'+(t.i>0?'<button class="tback" data-tour="back">'+tr('tour_back')+'</button>':'')+'<button class="tnext" data-tour="'+(last?'done':'next')+'">'+(last?tr('tour_done'):tr('tour_next'))+'</button></div>';
+  var vw=window.innerWidth,vh=window.innerHeight,cw=Math.min(360,vw-24);c.style.width=cw+'px';
+  if(!el){sp.classList.add('none');sp.style.cssText='';c.style.left=Math.round((vw-cw)/2)+'px';c.style.top=Math.max(12,Math.round((vh-c.offsetHeight)/2))+'px';c.classList.remove('in');void c.offsetWidth;c.classList.add('in');return}
+  sp.classList.remove('none');var r=el.getBoundingClientRect(),pad=8,L=Math.max(4,r.left-pad),T0=Math.max(4,r.top-pad),W=Math.min(vw-8-L,r.width+pad*2),Hh=Math.min(vh-8-T0,r.height+pad*2);
+  sp.style.left=L+'px';sp.style.top=T0+'px';sp.style.width=W+'px';sp.style.height=Hh+'px';
+  var ch=c.offsetHeight,below=vh-(T0+Hh),y;
+  if(below>=ch+16)y=T0+Hh+14;else if(T0>=ch+16)y=T0-ch-14;else y=Math.max(12,vh-ch-12);
+  var x=Math.min(Math.max(12,L+W/2-cw/2),vw-cw-12);
+  c.style.left=Math.round(x)+'px';c.style.top=Math.round(y)+'px';c.classList.remove('in');void c.offsetWidth;c.classList.add('in');
+}
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('[data-tour]');if(!b||!TOUR)return;e.stopPropagation();var a=b.getAttribute('data-tour');if(a==='next')tourGo(1);else if(a==='back')tourGo(-1);else tourEnd()},true);
+document.addEventListener('keydown',function(e){if(!TOUR)return;if(e.key==='Escape'){e.stopPropagation();tourEnd()}else if(e.key==='ArrowRight'||e.key==='Enter'){e.preventDefault();e.stopPropagation();tourGo(1)}else if(e.key==='ArrowLeft'){e.stopPropagation();tourGo(-1)}},true);
+window.addEventListener('resize',function(){if(TOUR&&TOUR.i>=0)tourShow(TOUR.steps[TOUR.i])});
 
 applyBrand(); labels(); renderView(false); load().then(connect);
 })();
