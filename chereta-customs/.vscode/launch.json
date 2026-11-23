@@ -1,1 +1,0 @@
-{ "version": "0.2.0", "configurations": [ { "name": "Run Chereta", "type": "node", "request": "launch", "program": "${workspaceFolder}/server/server.js", "env": { "ADMIN_USERNAME": "admin", "ADMIN_PASSWORD": "change-me-now-2026" } } ] }
