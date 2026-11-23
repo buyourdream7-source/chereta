@@ -124,7 +124,7 @@ function apply(st){
   ORG={}; ORGS=[]; (st.orgs||[]).forEach(function(o){var id=String(o.id), nm=esc(o.name); ORG[id]={en:nm,am:nm,h:hueOf(id),m:monoOf(o.name),kind:o.kind==='organization'?'organization':'branch',logo:o.logo||0}; ORGS.push(id)});
   CFG.siteLogo=st.settings.logo||0;
   LOTS=(st.lots||[]).map(toLot); S.bids={}; LOTS.forEach(function(l){if(l.myBid)S.bids[l.id]={amt:l.myBid.amt,ref:l.myBid.ref}});
-  var again=S.loaded; S.loaded=true; if(again)view.classList.add('calm');
+  var again=S.loaded; S.loaded=true; if(again&&Date.now()-(S.viewAt||0)>2500)view.classList.add('calm');
   var o=S.open&&byId(S.open), po=S.open&&prev[S.open];
   if(S.open){
     if(!o)closeSheet();
@@ -230,7 +230,7 @@ function renderList(){
   }
 }
 function renderView(anim){
-  view.className='view'; void view.offsetWidth; if(anim)view.className='view enter';
+  S.viewAt=Date.now(); view.className='view'; void view.offsetWidth; if(anim)view.className='view enter';
   if(S.tab==='home')buildHome(); else if(S.tab==='browse')buildBrowse(); else {view.innerHTML='<div class="list" id="list" style="margin-top:6px"></div>'; renderList()}
   counts();
 }
