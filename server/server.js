@@ -63,12 +63,14 @@ function createApp(opts = {}) {
       amount INTEGER NOT NULL, fee INTEGER NOT NULL, deposit INTEGER NOT NULL, total INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'awaiting_payment', due_at INTEGER NOT NULL, created_at INTEGER NOT NULL, paid_at INTEGER);
     CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS logos(owner TEXT PRIMARY KEY, mime TEXT NOT NULL, data BLOB NOT NULL, updated INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS posts(id INTEGER PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('news','tender')), title TEXT NOT NULL, body TEXT NOT NULL, org_id INTEGER, ref TEXT, closes_at INTEGER, created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, actor_id INTEGER, actor TEXT, action TEXT NOT NULL, target TEXT, detail TEXT);
   `);
 
   let clock = opts.now || (() => Date.now());
   const now = () => clock();
+  if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'branch'");
   const get = (sql, ...p) => db.prepare(sql).get(...p);
   const all = (sql, ...p) => db.prepare(sql).all(...p);
   const run = (sql, ...p) => db.prepare(sql).run(...p);
@@ -195,12 +197,12 @@ function createApp(opts = {}) {
   function stateFor(user) {
     closeDue();
     const meId = user ? user.id : null, s = settings();
-    const orgs = all("SELECT id,name FROM users WHERE role='branch' AND status='active' ORDER BY name").map((r) => ({ id: r.id, name: r.name }));
+    const orgs = all("SELECT u.id,u.name,u.kind,COALESCE((SELECT updated FROM logos WHERE owner=CAST(u.id AS TEXT)),0) logo FROM users u WHERE u.role='branch' AND u.status='active' ORDER BY u.kind, u.name").map((r) => ({ id: r.id, name: r.name, kind: r.kind || 'branch', logo: r.logo }));
     const myBids = new Map();
     if (meId) for (const b of all('SELECT lot_id, MAX(amount) amount, MAX(ref) ref FROM bids WHERE user_id=? GROUP BY lot_id', meId)) myBids.set(b.lot_id, { amt: b.amount, ref: b.ref || '' });
     const lots = all(`SELECT l.* FROM lots l JOIN users u ON u.id=l.org_id WHERE u.status='active' AND l.status!='cancelled' AND (l.status='open' OR l.closed_at>? OR l.id IN (SELECT lot_id FROM bids WHERE user_id=?)) ORDER BY l.end_at`, now() - 14 * DAY, meId || 0).map((l) => pubLot(l, meId, myBids));
     const posts = all('SELECT id,kind,title,body,org_id,ref,closes_at,created_at FROM posts ORDER BY created_at DESC LIMIT 30');
-    const out = { settings: { depositPercent: num(s.depositPercent, 5), buyerFeePercent: num(s.buyerFeePercent, 2), payInstructions: s.payInstructions, brandName: s.brandName, paymentDays: num(s.paymentDays, 3), supportPhone: s.supportPhone || '', supportEmail: s.supportEmail || '', supportAddress: s.supportAddress || '' }, orgs, lots, posts, now: now(), me: null };
+    const out = { settings: { depositPercent: num(s.depositPercent, 5), buyerFeePercent: num(s.buyerFeePercent, 2), payInstructions: s.payInstructions, brandName: s.brandName, paymentDays: num(s.paymentDays, 3), logo: (get("SELECT updated FROM logos WHERE owner='site'") || {}).updated || 0, supportPhone: s.supportPhone || '', supportEmail: s.supportEmail || '', supportAddress: s.supportAddress || '' }, orgs, lots, posts, now: now(), me: null };
     if (user) {
       out.me = { id: user.id, username: user.username, name: user.name, role: user.role, mustChange: !!user.must_change };
       if (user.role === 'bidder') out.me.orders = all("SELECT o.*, l.title, l.org_id oid, (SELECT name FROM users WHERE id=o.org_id) org_name FROM orders o JOIN lots l ON l.id=o.lot_id WHERE o.buyer_id=? ORDER BY o.created_at DESC", user.id).map(orderOut);
@@ -238,7 +240,7 @@ function createApp(opts = {}) {
     res.end(body);
   }
   const need = (user, ...roles) => { if (!user) fail(401, 'auth_required'); if (roles.length && !roles.includes(user.role)) fail(403, 'forbidden'); return user; };
-  const userRow = (u) => ({ id: u.id, username: u.username, name: u.name, phone: u.phone, role: u.role, status: u.status, createdAt: u.created_at, lastLogin: u.last_login });
+  const userRow = (u) => ({ id: u.id, username: u.username, name: u.name, phone: u.phone, role: u.role, status: u.status, kind: u.kind || 'branch', logo: u.logo || 0, createdAt: u.created_at, lastLogin: u.last_login });
 
   /* ---------- API ---------- */
   const routes = [];
@@ -280,6 +282,32 @@ function createApp(opts = {}) {
     audit(user, 'password.change', user.username); send(res, 200, { ok: true });
   });
   route('GET', '/api/state', async ({ user, res }) => send(res, 200, stateFor(user)));
+  function decodeLogo(url) {
+    const m = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(url || ''); if (!m) fail(400, 'bad_photo');
+    const buf = Buffer.from(m[2], 'base64'); if (buf.length < 100 || buf.length > 200000) fail(400, 'photo_big');
+    const ok = (m[1] === 'jpeg' && buf[0] === 0xff && buf[1] === 0xd8) || (m[1] === 'png' && buf.slice(0, 4).toString('hex') === '89504e47') || (m[1] === 'webp' && buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WEBP');
+    if (!ok) fail(400, 'bad_photo');
+    return { mime: 'image/' + m[1], buf };
+  }
+  const setLogo = (owner, url) => { const d = decodeLogo(url); run('INSERT INTO logos(owner,mime,data,updated) VALUES(?,?,?,?) ON CONFLICT(owner) DO UPDATE SET mime=excluded.mime,data=excluded.data,updated=excluded.updated', owner, d.mime, d.buf, now()); };
+  route('GET', '/api/logo/:owner', async ({ params, res }) => {
+    const p = get('SELECT mime,data FROM logos WHERE owner=?', params[0]); if (!p) fail(404, 'not_found');
+    res.writeHead(200, { 'Content-Type': p.mime, 'Cache-Control': 'public, max-age=604800', 'X-Content-Type-Options': 'nosniff' }); res.end(Buffer.from(p.data));
+  });
+  route('PUT', '/api/admin/logo/:owner', async ({ user, body, params, res }) => {
+    adm(user); const o = params[0];
+    if (o !== 'site' && !get("SELECT 1 FROM users WHERE id=? AND role='branch'", Number(o))) fail(404, 'not_found');
+    setLogo(o, body.data); audit(user, 'logo.set', o); notify(); send(res, 200, { ok: true });
+  });
+  route('DELETE', '/api/admin/logo/:owner', async ({ user, params, res }) => {
+    adm(user); run('DELETE FROM logos WHERE owner=?', params[0]); audit(user, 'logo.remove', params[0]); notify(); send(res, 200, { ok: true });
+  });
+  route('PUT', '/api/logo', async ({ user, body, res }) => {
+    need(user); if (user.role !== 'branch') fail(403, 'forbidden'); setLogo(String(user.id), body.data); audit(user, 'logo.set', String(user.id)); notify(); send(res, 200, { ok: true });
+  });
+  route('DELETE', '/api/logo', async ({ user, res }) => {
+    need(user); if (user.role !== 'branch') fail(403, 'forbidden'); run('DELETE FROM logos WHERE owner=?', String(user.id)); notify(); send(res, 200, { ok: true });
+  });
   route('GET', '/api/photo/:id/:idx', async ({ params, res }) => {
     const p = get("SELECT p.mime,p.data FROM photos p JOIN lots l ON l.id=p.lot_id WHERE p.lot_id=? AND p.idx=?", params[0], Number(params[1]));
     if (!p) fail(404, 'not_found');
@@ -344,19 +372,21 @@ function createApp(opts = {}) {
   });
   route('GET', '/api/admin/branches', async ({ user, res }) => {
     adm(user);
-    send(res, 200, { branches: all("SELECT u.*, (SELECT COUNT(*) FROM lots WHERE org_id=u.id) lots, (SELECT COUNT(*) FROM lots WHERE org_id=u.id AND status='open') open FROM users u WHERE role='branch' ORDER BY name").map((u) => Object.assign(userRow(u), { lots: u.lots, open: u.open })) });
+    send(res, 200, { branches: all("SELECT u.*, COALESCE((SELECT updated FROM logos WHERE owner=CAST(u.id AS TEXT)),0) logo, (SELECT COUNT(*) FROM lots WHERE org_id=u.id) lots, (SELECT COUNT(*) FROM lots WHERE org_id=u.id AND status='open') open FROM users u WHERE role='branch' ORDER BY name").map((u) => Object.assign(userRow(u), { lots: u.lots, open: u.open })) });
   });
   route('POST', '/api/admin/branches', async ({ user, body, res }) => {
     adm(user); const name = str(body.name, 2, 80, 'bad_name'), username = userName(body.username);
     const password = body.password ? body.password : genPassword(); if (!okPassword(password)) fail(400, 'bad_password');
+    const kind = body.kind === undefined ? 'branch' : body.kind; if (!['branch', 'organization'].includes(kind)) fail(400, 'bad_input');
     if (get('SELECT 1 FROM users WHERE username=?', username)) fail(409, 'username_taken');
-    const r = run("INSERT INTO users(username,name,role,pass,created_at) VALUES(?,?,'branch',?,?)", username, name, await hashPw(password), now());
-    audit(user, 'branch.create', username, name); notify(); send(res, 200, { id: Number(r.lastInsertRowid), username, name, password });
+    const r = run("INSERT INTO users(username,name,role,pass,kind,created_at) VALUES(?,?,'branch',?,?,?)", username, name, await hashPw(password), kind, now());
+    audit(user, 'branch.create', username, name); notify(); send(res, 200, { id: Number(r.lastInsertRowid), username, name, kind, password });
   });
   route('PATCH', '/api/admin/branches/:id', async ({ user, body, params, res }) => {
     adm(user); const b = get("SELECT * FROM users WHERE id=? AND role='branch'", Number(params[0])); if (!b) fail(404, 'not_found');
     const out = { ok: true };
     if (body.name !== undefined) { run('UPDATE users SET name=? WHERE id=?', str(body.name, 2, 80, 'bad_name'), b.id); audit(user, 'branch.rename', b.username, body.name); }
+    if (body.kind !== undefined) { if (!['branch', 'organization'].includes(body.kind)) fail(400, 'bad_input'); run('UPDATE users SET kind=? WHERE id=?', body.kind, b.id); audit(user, 'branch.kind', b.username, body.kind); }
     if (body.status !== undefined) {
       if (!['active', 'suspended'].includes(body.status)) fail(400, 'bad_input');
       run('UPDATE users SET status=? WHERE id=?', body.status, b.id); if (body.status === 'suspended') run('DELETE FROM sessions WHERE user_id=?', b.id);
@@ -415,7 +445,7 @@ function createApp(opts = {}) {
     const csv = ['Lot,Title,Branch,Buyer,Buyer phone,Winning bid,Fee,Total,Status,Date'].concat(rows.map((o) => [o.lot_id, o.title, o.org_name, o.buyer_name, o.buyer_phone, o.amount, o.fee, o.total, o.status, new Date(o.created_at).toISOString().slice(0, 10)].map(q).join(','))).join('\n');
     res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="chereta-orders.csv"', 'Cache-Control': 'no-store' }); res.end('﻿' + csv);
   });
-  route('GET', '/api/admin/settings', async ({ user, res }) => { adm(user); send(res, 200, { settings: settings() }); });
+  route('GET', '/api/admin/settings', async ({ user, res }) => { adm(user); send(res, 200, { settings: settings(), logo: (get("SELECT updated FROM logos WHERE owner='site'") || {}).updated || 0 }); });
   route('PUT', '/api/admin/settings', async ({ user, body, res }) => {
     adm(user);
     const rules = { depositPercent: () => String(int(body.depositPercent, 0, 100)), buyerFeePercent: () => String(int(body.buyerFeePercent, 0, 50)), paymentDays: () => String(int(body.paymentDays, 1, 30)), antiSnipeMinutes: () => String(int(body.antiSnipeMinutes, 0, 30)), payInstructions: () => str(body.payInstructions, 0, 600), brandName: () => str(body.brandName, 1, 40), supportPhone: () => str(body.supportPhone, 0, 40), supportEmail: () => str(body.supportEmail, 0, 80), supportAddress: () => str(body.supportAddress, 0, 160) };
@@ -454,7 +484,7 @@ function createApp(opts = {}) {
   /* ---------- server ---------- */
   const SEC = {
     'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin', 'X-Frame-Options': 'DENY', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
   };
   const server = http.createServer(async (req, res) => {
     for (const [k, v] of Object.entries(SEC)) res.setHeader(k, v);

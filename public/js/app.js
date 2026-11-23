@@ -18,7 +18,7 @@ var T={
   toast_lead:'You are leading',w_on:'Added to watchlist',w_off:'Removed from watchlist',
   d:'Days',h:'Hours',m:'Min',s:'Sec',my_bid:'Your bid',status_lead:'Leading',status_out:'Outbid',status_sub:'Submitted',none:'No lots match. Try another filter.',o_all:'All branches',
   cat_vehicle:'Vehicles',cat_machinery:'Machinery',cat_electronics:'Electronics',cat_furniture:'Furniture',cat_houses:'Houses',cat_power:'Power',cat_parts:'Parts',cat_goods:'Goods',
-  live_n:'{n} live now',soon_n:'{n} closing within 6 hours',see_live:'See live auctions',orgs_t:'Customs branches',cats_t:'Categories',nt_t:'News & Tenders',n_news:'News',n_tend:'Tenders',nt_none:'Nothing posted yet.',
+  live_n:'{n} live now',soon_n:'{n} closing within 6 hours',see_live:'See live auctions',orgs_t:'Customs branches',orgs_p:'Partner organizations',o_logo:'Change logo',o_logo_rm:'Remove logo',o_logo_ok:'Logo updated',cats_t:'Categories',nt_t:'News & Tenders',n_news:'News',n_tend:'Tenders',nt_none:'Nothing posted yet.',
   see_lots:'See lots',more:'Read more',less:'Show less',tref:'Ref',tclose:'Closes',days_left:'{n} days left',t_closed:'Closed',
   m_home:'Home',m_watch:'My Watchlist',m_about:'About Chereta',m_faq:'FAQ',m_pricing:'Pricing',m_lang:'Language',m_reg:'Register',m_in:'Sign in',m_out:'Sign out',m_terms:'Terms & Conditions',m_tut:'Tutorials',m_priv:'Privacy policy',m_support:'Support',m_account:'My account',m_admin:'Admin console',
   a_reg:'Register',a_in:'Sign in',name:'Full name',phone:'Phone number',username:'Username or phone number',pass:'Password',pass_new:'Choose a password (8 or more characters)',go_in:'Sign in',go_reg:'Create account',
@@ -49,7 +49,7 @@ var T={
   toast_lead:'እየመራህ ነው',w_on:'ወደ ክትትል ታክሏል',w_off:'ከክትትል ተወግዷል',
   d:'ቀን',h:'ሰዓት',m:'ደቂቃ',s:'ሰከንድ',my_bid:'ያንተ ጨረታ',status_lead:'እየመራህ',status_out:'ተበልጠሃል',status_sub:'ተልኳል',none:'የሚመሳሰል ዕጣ የለም። ሌላ ማጣሪያ ሞክር።',o_all:'ሁሉም ቅርንጫፎች',
   cat_vehicle:'ተሽከርካሪ',cat_machinery:'ማሽነሪ',cat_electronics:'ኤሌክትሮኒክስ',cat_furniture:'የቤት ዕቃ',cat_houses:'ቤቶች',cat_power:'ኃይል',cat_parts:'መለዋወጫ',cat_goods:'ዕቃዎች',
-  live_n:'{n} አሁን ቀጥታ',soon_n:'{n} በ6 ሰዓት ውስጥ ይዘጋሉ',see_live:'ቀጥታ ጨረታዎችን ተመልከት',orgs_t:'የጉምሩክ ቅርንጫፎች',cats_t:'ምድቦች',nt_t:'ዜና እና ማስታወቂያ',n_news:'ዜና',n_tend:'ማስታወቂያ',nt_none:'እስካሁን የተለጠፈ የለም።',
+  live_n:'{n} አሁን ቀጥታ',soon_n:'{n} በ6 ሰዓት ውስጥ ይዘጋሉ',see_live:'ቀጥታ ጨረታዎችን ተመልከት',orgs_t:'የጉምሩክ ቅርንጫፎች',orgs_p:'አጋር ድርጅቶች',o_logo:'አርማ ቀይር',o_logo_rm:'አርማ አስወግድ',o_logo_ok:'አርማው ተዘምኗል',cats_t:'ምድቦች',nt_t:'ዜና እና ማስታወቂያ',n_news:'ዜና',n_tend:'ማስታወቂያ',nt_none:'እስካሁን የተለጠፈ የለም።',
   see_lots:'ዕጣዎችን ተመልከት',more:'ተጨማሪ አንብብ',less:'አሳንስ',tref:'ማጣቀሻ',tclose:'የሚዘጋው',days_left:'{n} ቀን ቀርቷል',t_closed:'ተዘግቷል',
   m_home:'መነሻ',m_watch:'የእኔ ክትትል',m_about:'ስለ ጨረታ',m_faq:'ተደጋጋሚ ጥያቄዎች',m_pricing:'ዋጋ',m_lang:'ቋንቋ',m_reg:'ተመዝገብ',m_in:'ግባ',m_out:'ውጣ',m_terms:'ውሎች እና ሁኔታዎች',m_tut:'መማሪያ',m_priv:'የግላዊነት ፖሊሲ',m_support:'ድጋፍ',m_account:'የእኔ መለያ',m_admin:'የአስተዳዳሪ ገጽ',
   a_reg:'ተመዝገብ',a_in:'ግባ',name:'ሙሉ ስም',phone:'ስልክ ቁጥር',username:'የተጠቃሚ ስም ወይም ስልክ ቁጥር',pass:'የይለፍ ቃል',pass_new:'የይለፍ ቃል ምረጥ (8 ወይም ከዚያ በላይ ፊደላት)',go_in:'ግባ',go_reg:'መለያ ክፈት',
@@ -80,6 +80,8 @@ function grp(l){return GROUP[l.cat]||l.cat}
 var H=3600000, M=60000, DAY=86400000, LOTS=[];
 function byId(id){return LOTS.filter(function(l){return l.id===id})[0]}
 function orgName(l){var o=ORG[l.org]; return o?o[S.lang]:''}
+function logoURL(id,v){return '/api/logo/'+encodeURIComponent(id)+'?v='+v}
+function orgTag(l){var o=ORG[l.org]; if(!o)return ''; return (o.logo?'<img class="olgs" alt="" src="'+logoURL(l.org,o.logo)+'">':'')+o[S.lang]}
 
 /* ---------- state ---------- */
 var S={lang:'en',tab:'home',mode:'all',org:'all',cat:'all',sort:'end',q:'',watch:{},bids:{},open:null,nt:'news',openNews:{},
@@ -119,7 +121,8 @@ function apply(st){
   var prev={}; LOTS.forEach(function(l){prev[l.id]=l});
   S.off=(st.now||Date.now())-Date.now(); S.settings=st.settings; S.posts=st.posts||[]; S.me=st.me;
   CFG.depositPercent=st.settings.depositPercent; CFG.buyerFeePercent=st.settings.buyerFeePercent; CFG.brandName=st.settings.brandName||CFG.brandName; applyBrand();
-  ORG={}; ORGS=[]; (st.orgs||[]).forEach(function(o){var id=String(o.id), nm=esc(o.name); ORG[id]={en:nm,am:nm,h:hueOf(id),m:monoOf(o.name)}; ORGS.push(id)});
+  ORG={}; ORGS=[]; (st.orgs||[]).forEach(function(o){var id=String(o.id), nm=esc(o.name); ORG[id]={en:nm,am:nm,h:hueOf(id),m:monoOf(o.name),kind:o.kind==='organization'?'organization':'branch',logo:o.logo||0}; ORGS.push(id)});
+  CFG.siteLogo=st.settings.logo||0;
   LOTS=(st.lots||[]).map(toLot); S.bids={}; LOTS.forEach(function(l){if(l.myBid)S.bids[l.id]={amt:l.myBid.amt,ref:l.myBid.ref}});
   var again=S.loaded; S.loaded=true; if(again)view.classList.add('calm');
   var o=S.open&&byId(S.open), po=S.open&&prev[S.open];
@@ -152,7 +155,7 @@ function card(l,i,showBid){
   var closed=l.status!=='open'||left<=0;
   return '<article class="card" style="--i:'+i+'" data-open="'+l.id+'" tabindex="0">'+
    '<div class="tile'+(l.photos.length?' ph':'')+'" style="--h:'+c.h+'">'+(l.photos.length?'<img alt="" loading="lazy" src="'+l.photos[0]+'">':ic(c.icon))+'</div>'+
-   '<div class="info"><div class="org">'+orgName(l)+'</div><h3>'+l.t[S.lang]+'</h3>'+
+   '<div class="info"><div class="org">'+orgTag(l)+'</div><h3>'+l.t[S.lang]+'</h3>'+
    '<div class="meta">'+pill+(l.src?'<span class="src">'+tr('src_'+l.src)+'</span>':'')+'<span>'+l.bidders+' '+tr('bidders')+'</span><span>'+l.id+'</span></div></div>'+
    '<button class="heart" data-heart="'+l.id+'" aria-pressed="'+w+'" aria-label="Watch">'+ic('i-heart')+'</button>'+
    '<div class="foot"><div class="price"><small>'+(l.status==='sold'?tr('res_sold'):l.mode==='live'?tr('current'):tr('initial'))+'</small><b data-price="'+l.id+'">'+fmt(l.status==='sold'?l.finalPrice:l.price)+'</b><i>ETB</i></div>'+
@@ -173,15 +176,16 @@ function filtered(){
   return a}
 function buildHome(){
   var n=nowMs(), open=LOTS.filter(isOpen), liveN=open.filter(function(l){return l.mode==='live'}).length, soon=open.filter(function(l){return l.end-n<6*H}).length;
-  var orgs=ORGS.map(function(o,i){var c=open.filter(function(l){return l.org===o}).length;
-    return '<button class="oc" style="--i:'+i+';--h:'+ORG[o].h+'" data-orgfilter="'+o+'"><div class="t2"><span class="mono">'+ORG[o].m+'</span><span class="cnt">'+c+'</span></div><div class="nm">'+ORG[o][S.lang]+'</div><div class="hn">'+tr('see_lots')+ic('i-arrow')+'</div></button>'}).join('');
+  function orgCards(kind){return ORGS.filter(function(o){return ORG[o].kind===kind}).map(function(o,i){var c=open.filter(function(l){return l.org===o}).length, g=ORG[o];
+    return '<button class="oc" style="--i:'+i+';--h:'+g.h+'" data-orgfilter="'+o+'"><div class="t2">'+(g.logo?'<img class="lgimg" alt="" src="'+logoURL(o,g.logo)+'">':'<span class="mono">'+g.m+'</span>')+'<span class="cnt">'+c+'</span></div><div class="nm">'+g[S.lang]+'</div><div class="hn">'+tr('see_lots')+ic('i-arrow')+'</div></button>'}).join('')}
+  var nB=ORGS.filter(function(o){return ORG[o].kind==='branch'}).length, nP=ORGS.length-nB;
   var cats=CATS.map(function(g,i){var c=open.filter(function(l){return grp(l)===g}).length, k=CAT[g];
     return '<button class="cc" style="--i:'+i+'" data-catfilter="'+g+'"><span class="tile" style="--h:'+k.h+'">'+ic(k.icon)+'</span>'+tr('cat_'+g)+'<small>'+c+'</small></button>'}).join('');
   var r=role(), cta=r==='branch'?['m_portal','']:r==='admin'?['m_admin','']:[ 'o_cta_t','o_cta_d'];
   view.innerHTML=
    '<section class="banner"><div><small>'+tr('t_browse')+'</small><b>'+tr('live_n').replace('{n}',liveN)+'</b><p>'+tr('soon_n').replace('{n}',soon)+'</p><button class="btn-s" data-golive>'+tr('see_live')+'</button></div><div class="orb"><i></i><i></i><i></i>'+ic('i-hammer')+'</div></section>'+
-   '<button class="cta" data-orgcta><span class="ico">'+ic('i-building')+'</span><div><b>'+tr(cta[0])+'</b>'+(cta[1]?'<span>'+tr(cta[1])+'</span>':'')+'</div><span class="go">'+ic('i-arrow')+'</span></button>'+
-   (ORGS.length?'<div class="sec"><h2>'+tr('orgs_t')+'</h2><span>'+ORGS.length+'</span></div><div class="orgs">'+orgs+'</div>':'')+
+   
+   (nB?'<div class="sec"><h2>'+tr('orgs_t')+'</h2><span>'+nB+'</span></div><div class="orgs">'+orgCards('branch')+'</div>':'')+(nP?'<div class="sec"><h2>'+tr('orgs_p')+'</h2><span>'+nP+'</span></div><div class="orgs">'+orgCards('organization')+'</div>':'')+
    '<div class="sec"><h2>'+tr('cats_t')+'</h2></div><div class="cats">'+cats+'</div>'+
    '<div class="sec"><h2>'+tr('nt_t')+'</h2></div>'+
    '<div class="seg-ctl two" id="ntseg"><i style="transform:translateX('+(S.nt==='news'?0:100)+'%)"></i><button data-nt="news" aria-pressed="'+(S.nt==='news')+'">'+tr('n_news')+'</button><button data-nt="tenders" aria-pressed="'+(S.nt==='tenders')+'">'+tr('n_tend')+'</button></div>'+
@@ -249,7 +253,9 @@ function labels(){
 }
 function applyBrand(){
   var b=$('.brand'); if(!b)return;
-  if(CFG.logo&&!$('img',b)){var im=new Image(); im.alt=''; im.src=CFG.logo; im.style.cssText='width:34px;height:34px;object-fit:contain;flex:none'; var sv=$('svg',b); if(sv)b.replaceChild(im,sv)}
+  var src=CFG.siteLogo?logoURL('site',CFG.siteLogo):CFG.logo, cur=$('img',b);
+  if(src&&!cur){var im=new Image(); im.alt=''; im.src=src; im.style.cssText='width:38px;height:38px;object-fit:contain;flex:none;border-radius:8px'; var sv=$('svg',b); if(sv)b.replaceChild(im,sv)}
+  else if(src&&cur&&cur.getAttribute('src')!==src)cur.src=src;
   var nm=$('b',b); if(nm)nm.textContent=CFG.brandName; document.title=CFG.brandName+' | '+tr('brand_sub');
 }
 
@@ -315,7 +321,7 @@ function sheetHTML(l){
   return '<div class="grab" id="grab"><i></i></div>'+
    '<button class="x" data-act="close" aria-label="'+tr('close')+'">'+ic('i-close')+'</button>'+
    heroHTML(l,c)+
-   '<h2>'+l.t[S.lang]+'</h2><div class="org">'+orgName(l)+' · '+(live?'<span class="pill live">'+tr('live').toUpperCase()+'</span>':'<span class="pill sealed">'+ic('i-lock')+tr('sealed').toUpperCase()+'</span>')+'</div>'+
+   '<h2>'+l.t[S.lang]+'</h2><div class="org">'+orgTag(l)+' · '+(live?'<span class="pill live">'+tr('live').toUpperCase()+'</span>':'<span class="pill sealed">'+ic('i-lock')+tr('sealed').toUpperCase()+'</span>')+'</div>'+
    (open?'<div class="segs" id="segs">'+segs+'</div>':'')+
    '<div class="pricebox"><div class="price"><small>'+(l.status==='sold'?tr('res_sold'):live?tr('current'):tr('initial'))+'</small><b data-price="'+l.id+'">'+fmt(l.status==='sold'?l.finalPrice:l.price)+'</b><i>ETB</i></div></div>'+
    (l.d[S.lang]?'<p class="desc">'+l.d[S.lang]+'</p>':'')+facts+hist+tail;
@@ -453,7 +459,9 @@ function portalHTML(){
   var n=nowMs(), mine=ownLots(), liveN=mine.filter(function(l){return l.mode==='live'&&isOpen(l)}).length, bd=mine.filter(isOpen).reduce(function(s,l){return s+l.bidders},0), ords=S.me.orders||[];
   var list=mine.length?'<div class="mine">'+mine.map(lotRow).join('')+'</div>':'<div class="empty">'+ic('i-box')+'<p>'+tr('o_none_lots')+'</p></div>';
   var ol=ords.length?'<h3 class="h-title">'+tr('o_orders')+'</h3><div class="mine">'+ords.map(orderRow).join('')+'</div>':'';
-  return shell(esc(S.me.name),'<div class="stats"><div class="stat"><b>'+mine.filter(isOpen).length+'</b><span>'+tr('o_lots')+'</span></div><div class="stat"><b>'+liveN+'</b><span>'+tr('o_live')+'</span></div><div class="stat"><b>'+bd+'</b><span>'+tr('o_bidders')+'</span></div></div>'+
+  var myo=ORG[String(S.me.id)]||{logo:0,m:monoOf(S.me.name)};
+  var lrow='<div class="lrow">'+(myo.logo?'<img class="lgimg big" alt="" src="'+logoURL(S.me.id,myo.logo)+'">':'<span class="mono">'+esc(myo.m)+'</span>')+'<div class="lbtns"><label class="btn-s" for="lgFile">'+tr('o_logo')+'</label>'+(myo.logo?'<button class="link" data-act="lgrm">'+tr('o_logo_rm')+'</button>':'')+'<input type="file" id="lgFile" accept="image/*" hidden></div></div>';
+  return shell(esc(S.me.name),lrow+'<div class="stats"><div class="stat"><b>'+mine.filter(isOpen).length+'</b><span>'+tr('o_lots')+'</span></div><div class="stat"><b>'+liveN+'</b><span>'+tr('o_live')+'</span></div><div class="stat"><b>'+bd+'</b><span>'+tr('o_bidders')+'</span></div></div>'+
     '<button class="btn" data-act="opost">'+ic('i-plus')+'<span>'+tr('o_post')+'</span></button>'+ol+'<h3 class="h-title">'+tr('o_mine')+'</h3>'+list+
     '<button class="link" data-act="osignout">'+tr('o_signout')+'</button>');
 }
@@ -489,6 +497,10 @@ function pfHTML(){
 function shrink(file){return new Promise(function(res,rej){var u=URL.createObjectURL(file), im=new Image();
   im.onload=function(){var k=Math.min(1,900/Math.max(im.width,im.height)), c=document.createElement('canvas'); c.width=Math.max(1,Math.round(im.width*k)); c.height=Math.max(1,Math.round(im.height*k));
     c.getContext('2d').drawImage(im,0,0,c.width,c.height); URL.revokeObjectURL(u); res(c.toDataURL('image/jpeg',.7))};
+  im.onerror=function(){URL.revokeObjectURL(u); rej()}; im.src=u})}
+function shrinkLogo(file){return new Promise(function(res,rej){var u=URL.createObjectURL(file), im=new Image();
+  im.onload=function(){var k=Math.min(1,320/Math.max(im.width,im.height)), c=document.createElement('canvas'); c.width=Math.max(1,Math.round(im.width*k)); c.height=Math.max(1,Math.round(im.height*k));
+    c.getContext('2d').drawImage(im,0,0,c.width,c.height); URL.revokeObjectURL(u); var d=c.toDataURL('image/png'); if(d.length>250000)d=c.toDataURL('image/webp',.85); res(d)};
   im.onerror=function(){URL.revokeObjectURL(u); rej()}; im.src=u})}
 function pfErr(msg,sel){var e=$('#pferr'); if(e){e.className='hint err'; e.textContent=msg} bad(sel)}
 function pfSubmit(){
@@ -545,6 +557,7 @@ document.addEventListener('click',function(e){
     else if(a==='authgo')doAuth(); else if(a==='acsave')acSave();
     else if(a==='opost')openPost(); else if(a==='oback')openPortal(); else if(a==='pfsubmit')pfSubmit();
     else if(a==='osignout')logout();
+    else if(a==='lgrm')API('DELETE','/api/logo').then(function(){toast(tr('o_logo_ok'));return load()}).then(function(){if(S.panelFn===portalHTML)showPanel(portalHTML)},function(e){toast(errMsg(e),true)});
     return}
   if(t===scrim){closeSheet(); return}
   if(t===dscrim){closeDrawer(); return}
@@ -567,6 +580,7 @@ document.addEventListener('input',function(e){
 });
 document.addEventListener('change',function(e){
   if(e.target.id==='sort'){S.sort=e.target.value; renderList()}
+  if(e.target.id==='lgFile'){var f=e.target.files&&e.target.files[0]; e.target.value=''; if(f)shrinkLogo(f).then(function(d){return API('PUT','/api/logo',{data:d})}).then(function(){toast(tr('o_logo_ok'));return load()}).then(function(){if(S.panelFn===portalHTML)showPanel(portalHTML)},function(x){toast(x&&x.code?errMsg(x):tr('e_bad_photo'),true)})}
   if(e.target.id==='pfFile'){
     var fs=Array.prototype.slice.call(e.target.files||[]).slice(0,3-S.pf.photos.length); e.target.value='';
     fs.reduce(function(p,f){return p.then(function(){return shrink(f).then(function(d){S.pf.photos.push(d); pfPhotosRender()}).catch(function(){})})},Promise.resolve());
