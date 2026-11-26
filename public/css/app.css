@@ -475,3 +475,6 @@ select.inp{font-size:15px;padding:0 10px}
 .lrow{display:flex;align-items:center;gap:16px;margin:4px 0 16px}.lrow .lgimg.big{width:72px;height:72px;object-fit:contain;border-radius:14px;background:#fff;border:1px solid var(--line)}
 .lbtns{display:flex;flex-direction:column;align-items:flex-start;gap:4px}.lbtns .btn-s{cursor:pointer;display:inline-flex}
 .brand img{border-radius:8px}
+.chk{display:flex;gap:10px;align-items:flex-start;margin:12px 0;font-size:14px;line-height:1.4;cursor:pointer}
+.chk input{width:20px;height:20px;margin-top:1px;flex:none;accent-color:var(--brand,#0b6b4d)}
+.bkcard{margin:4px 0 12px}

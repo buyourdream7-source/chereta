@@ -17,10 +17,22 @@ const SRCS = ['uncleared', 'seized', 'abandoned'];
 const DUTIES = ['incl', 'buyer'];
 const DEFAULTS = {
   depositPercent: '5',
-  buyerFeePercent: '2',
+  docFee: '400',
+  buyerFeePercent: '0',
   paymentDays: '3',
+  extendDays: '7',
+  pickupDays: '15',
+  complaintDays: '3',
+  specialMax: '300000',
+  noLicenceMax: '100000',
+  noticeFirst: '7',
+  noticeRepeat: '5',
+  enforceNotice: '1',
+  minBidders: '2',
+  tieHours: '24',
+  rentPerDay: '0',
   antiSnipeMinutes: '2',
-  payInstructions: 'Pay with Telebirr or CBE Birr using the account details shown by the branch. Keep your payment receipt.',
+  payInstructions: 'Pay the full balance to the branch bank account shown on the lot, then show your receipt at the branch to collect the goods.',
   brandName: 'Chereta',
   supportPhone: '',
   supportEmail: '',
@@ -68,6 +80,21 @@ function createApp(opts = {}) {
     CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, ts INTEGER NOT NULL, actor_id INTEGER, actor TEXT, action TEXT NOT NULL, target TEXT, detail TEXT);
   `);
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS entries(
+      id INTEGER PRIMARY KEY, lot_id TEXT NOT NULL REFERENCES lots(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      doc_ref TEXT, cpo_no TEXT, cpo_bank TEXT, amount INTEGER NOT NULL DEFAULT 0, attest INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK(status IN ('pending','approved','rejected','applied','refund_due','refunded','forfeited')),
+      note TEXT, created_at INTEGER NOT NULL, decided_at INTEGER, decided_by TEXT, refund_ref TEXT, UNIQUE(lot_id,user_id));
+    CREATE TABLE IF NOT EXISTS forfeits(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, org_id INTEGER NOT NULL, lot_id TEXT NOT NULL, at INTEGER NOT NULL, fy INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS complaints(id INTEGER PRIMARY KEY, lot_id TEXT NOT NULL REFERENCES lots(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, body TEXT NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open', reply TEXT, replied_at INTEGER);
+  `);
+  const addCol = (table, col, def) => { if (!db.prepare('PRAGMA table_info(' + table + ')').all().some((c) => c.name === col)) db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + col + ' ' + def); };
+  for (const c of ['tin', 'license', 'bank_name', 'bank_account', 'bank_holder', 'cpo_payee', 'office_address', 'office_phone', 'view_info']) addCol('users', c, "TEXT NOT NULL DEFAULT ''");
+  addCol('users', 'ban_until', 'INTEGER NOT NULL DEFAULT 0');
+  addCol('lots', 'view_info', "TEXT NOT NULL DEFAULT ''"); addCol('lots', 'repeat', 'INTEGER NOT NULL DEFAULT 0'); addCol('lots', 'special', 'INTEGER NOT NULL DEFAULT 0');
+  addCol('lots', 'approved_at', 'INTEGER'); addCol('lots', 'tie_users', 'TEXT');
+  addCol('orders', 'pickup_by', 'INTEGER'); addCol('orders', 'extended', 'INTEGER NOT NULL DEFAULT 0'); addCol('orders', 'note', 'TEXT');
   let clock = opts.now || (() => Date.now());
   const now = () => clock();
   if (!db.prepare('PRAGMA table_info(users)').all().some((c) => c.name === 'kind')) db.exec("ALTER TABLE users ADD COLUMN kind TEXT NOT NULL DEFAULT 'branch'");
@@ -131,34 +158,91 @@ function createApp(opts = {}) {
   }
 
   /* ---------- auction logic ---------- */
+  const addWork = (ts, n) => { let t = ts; while (n > 0) { t += DAY; const d = new Date(t).getUTCDay(); if (d !== 0 && d !== 6) n--; } return t; };
+  const fyOf = (ts) => { const y = new Date(ts).getUTCFullYear(); return ts >= Date.UTC(y, 6, 8) ? y : y - 1; };
+  const secNeed = (lot, s) => lot.special ? 0 : Math.ceil(lot.initial * num((s || settings()).depositPercent, 5) / 100);
+  const reqFor = (lot, s) => {
+    s = s || settings(); const low = lot.special && lot.initial <= num(s.noLicenceMax, 100000);
+    return { security: secNeed(lot, s), tin: !low, license: !low && lot.cat !== 'vehicle', doc: !lot.special };
+  };
+  const banned = (u) => u.ban_until > now();
+
+  function forfeit(o, lot, why) {
+    const e = get('SELECT * FROM entries WHERE lot_id=? AND user_id=?', lot.id, o.buyer_id);
+    if (e) run("UPDATE entries SET status='forfeited',note=? WHERE id=?", why, e.id);
+    run('INSERT INTO forfeits(user_id,org_id,lot_id,at,fy) VALUES(?,?,?,?,?)', o.buyer_id, o.org_id, lot.id, now(), fyOf(now()));
+    if (get('SELECT COUNT(*) n FROM forfeits WHERE user_id=? AND fy=?', o.buyer_id, fyOf(now())).n >= 2) {
+      run('UPDATE users SET ban_until=? WHERE id=?', now() + 365 * DAY, o.buyer_id); audit(null, 'user.ban', String(o.buyer_id), 'two forfeits in one budget year');
+    }
+  }
+  function offerNext(o, lot, finalStatus, why) {
+    const nxt = get("SELECT b.user_id, MAX(b.amount) amount FROM bids b JOIN entries e ON e.lot_id=b.lot_id AND e.user_id=b.user_id JOIN users u ON u.id=b.user_id WHERE b.lot_id=? AND b.user_id<>? AND e.status IN ('approved','refund_due') AND u.ban_until<=? AND u.status='active' GROUP BY b.user_id HAVING MAX(b.amount)<=? ORDER BY MAX(b.amount) DESC LIMIT 1", lot.id, o.buyer_id, now(), o.amount);
+    if (nxt) {
+      const e = get('SELECT * FROM entries WHERE lot_id=? AND user_id=?', lot.id, nxt.user_id), fee = Math.round(nxt.amount * num(settings().buyerFeePercent, 0) / 100);
+      run("UPDATE entries SET status='applied' WHERE id=?", e.id);
+      run("UPDATE orders SET buyer_id=?,amount=?,fee=?,deposit=?,total=?,status='awaiting_approval',due_at=0,extended=0,paid_at=NULL,note=? WHERE id=?", nxt.user_id, nxt.amount, fee, e.amount, nxt.amount + fee, why + ' - offered to the next highest bidder', o.id);
+      run('UPDATE lots SET winner_id=?,final_price=?,price=? WHERE seq=?', nxt.user_id, nxt.amount, nxt.amount, lot.seq);
+      audit(null, 'order.offer_next', lot.id, 'to user ' + nxt.user_id);
+    } else {
+      run('UPDATE orders SET status=?,note=? WHERE id=?', finalStatus, why, o.id);
+      run("UPDATE lots SET status='unsold',note=? WHERE seq=?", why, lot.seq);
+    }
+  }
   function closeDue() {
-    const due = all("SELECT * FROM lots WHERE status='open' AND end_at<=?", now());
+    const s = settings(), t0 = now();
+    const due = all("SELECT * FROM lots WHERE status='open' AND end_at<=?", t0);
     for (const lot of due) {
       tx(() => {
         const cur = get('SELECT * FROM lots WHERE seq=?', lot.seq); if (cur.status !== 'open') return;
-        let win = null;
-        if (cur.mode === 'live') win = get('SELECT user_id,amount FROM bids WHERE lot_id=? ORDER BY amount DESC, id ASC LIMIT 1', cur.id);
-        else win = get('SELECT user_id,amount FROM bids WHERE lot_id=? ORDER BY amount DESC, created_at ASC, id ASC LIMIT 1', cur.id);
+        const order = cur.mode === 'live' ? 'amount DESC, id ASC' : 'amount DESC, created_at ASC, id ASC';
+        const win = get('SELECT user_id,amount FROM bids WHERE lot_id=? ORDER BY ' + order + ' LIMIT 1', cur.id);
+        const n = get('SELECT COUNT(DISTINCT user_id) n FROM bids WHERE lot_id=?', cur.id).n;
+        if (win && !cur.special && n < num(s.minBidders, 2)) {
+          run("UPDATE lots SET status='unsold',closed_at=?,note=? WHERE seq=?", t0, 'Fewer than ' + num(s.minBidders, 2) + ' bidders', cur.seq);
+          run("UPDATE entries SET status='refund_due' WHERE lot_id=? AND status='approved' AND amount>0", cur.id);
+          audit(null, 'lot.unsold', cur.id, 'too few bidders'); return;
+        }
+        if (win && cur.mode === 'sealed' && !cur.tie_users) {
+          const tied = all('SELECT user_id FROM bids WHERE lot_id=? AND amount=?', cur.id, win.amount);
+          if (tied.length > 1) {
+            run('UPDATE lots SET end_at=?,price=?,tie_users=? WHERE seq=?', t0 + num(s.tieHours, 24) * 3600000, win.amount, JSON.stringify(tied.map((x) => x.user_id)), cur.seq);
+            audit(null, 'lot.tie', cur.id, tied.length + ' equal bids'); return;
+          }
+        }
         if (win) {
-          const s = settings(), fee = Math.round(win.amount * num(s.buyerFeePercent, 2) / 100), dep = Math.ceil(cur.initial * num(s.depositPercent, 5) / 100);
-          run("UPDATE lots SET status='sold',closed_at=?,winner_id=?,final_price=?,price=? WHERE seq=?", now(), win.user_id, win.amount, win.amount, cur.seq);
-          run('INSERT INTO orders(lot_id,buyer_id,org_id,amount,fee,deposit,total,status,due_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)', cur.id, win.user_id, cur.org_id, win.amount, fee, dep, win.amount + fee, 'awaiting_payment', now() + num(s.paymentDays, 3) * DAY, now());
+          const fee = Math.round(win.amount * num(s.buyerFeePercent, 0) / 100), e = get('SELECT * FROM entries WHERE lot_id=? AND user_id=?', cur.id, win.user_id);
+          run("UPDATE lots SET status='sold',closed_at=?,winner_id=?,final_price=?,price=? WHERE seq=?", t0, win.user_id, win.amount, win.amount, cur.seq);
+          if (e) run("UPDATE entries SET status='applied' WHERE id=?", e.id);
+          run("UPDATE entries SET status='refund_due' WHERE lot_id=? AND status='approved' AND amount>0 AND user_id<>?", cur.id, win.user_id);
+          run("INSERT INTO orders(lot_id,buyer_id,org_id,amount,fee,deposit,total,status,due_at,created_at) VALUES(?,?,?,?,?,?,?,'awaiting_approval',0,?)", cur.id, win.user_id, cur.org_id, win.amount, fee, e ? e.amount : 0, win.amount + fee, t0);
           audit(null, 'lot.sold', cur.id, 'amount ' + win.amount);
         } else {
-          run("UPDATE lots SET status='unsold',closed_at=? WHERE seq=?", now(), cur.seq);
+          run("UPDATE lots SET status='unsold',closed_at=? WHERE seq=?", t0, cur.seq);
           audit(null, 'lot.unsold', cur.id);
         }
       });
     }
-    if (due.length) notify();
+    let changed = due.length;
+    for (const o of all("SELECT * FROM orders WHERE status='awaiting_payment' AND due_at<=?", t0)) {
+      tx(() => {
+        const cur = get('SELECT * FROM orders WHERE id=?', o.id); if (cur.status !== 'awaiting_payment') return;
+        const lot = get('SELECT * FROM lots WHERE id=?', cur.lot_id);
+        forfeit(cur, lot, 'Did not pay in time'); offerNext(cur, lot, 'defaulted', 'Winner did not pay in time'); audit(null, 'order.defaulted', lot.id);
+      }); changed++;
+    }
+    if (changed) notify();
     return due.length;
   }
   function placeBid(user, lotId, amount) {
     if (user.role !== 'bidder') fail(403, 'bidders_only');
+    if (banned(user)) fail(403, 'banned', { until: user.ban_until });
     return tx(() => {
       const lot = get('SELECT l.*, u.status AS org_status FROM lots l JOIN users u ON u.id=l.org_id WHERE l.id=?', lotId);
       if (!lot || lot.org_status !== 'active') fail(404, 'not_found');
       if (lot.status !== 'open' || lot.end_at <= now()) fail(409, 'closed');
+      const en = get("SELECT status FROM entries WHERE lot_id=? AND user_id=?", lot.id, user.id);
+      if (!en || en.status !== 'approved') fail(402, 'entry_required', { entry: en ? en.status : 'none' });
+      if (lot.tie_users && !JSON.parse(lot.tie_users).includes(user.id)) fail(403, 'not_in_tie');
       if (!Number.isInteger(amount) || amount <= 0 || amount > 1e12) fail(400, 'bad_amount');
       const s = settings(), t = now();
       if (lot.mode === 'live') {
@@ -171,7 +255,8 @@ function createApp(opts = {}) {
         run('UPDATE lots SET price=?,last_bidder=?,bidders=?,end_at=? WHERE seq=?', amount, user.id, n, end, lot.seq);
         return { price: amount, leader: 'you', end };
       }
-      if (amount < lot.initial) fail(409, 'low_bid', { min: lot.initial });
+      const floor = lot.tie_users ? lot.price + 1 : lot.initial;
+      if (amount < floor) fail(409, 'low_bid', { min: floor });
       const mine = get('SELECT id,ref FROM bids WHERE lot_id=? AND user_id=?', lot.id, user.id);
       let ref;
       if (mine) { ref = mine.ref; run('UPDATE bids SET amount=?,created_at=? WHERE id=?', amount, t, mine.id); }
@@ -185,6 +270,7 @@ function createApp(opts = {}) {
     const live = l.mode === 'live', o = {
       id: l.id, orgId: l.org_id, title: l.title, desc: l.descr, cat: l.cat, mode: l.mode, initial: l.initial, step: l.step, bidders: l.bidders, end: l.end_at,
       src: l.src, ref: l.ref, duty: l.duty, photos: l.photos, status: l.status, price: live ? l.price : l.initial,
+      special: !!l.special, repeat: !!l.repeat, view: l.view_info || '', security: secNeed(l), tie: !!l.tie_users,
     };
     if (live) {
       o.hist = all('SELECT user_id,amount FROM bids WHERE lot_id=? ORDER BY id DESC LIMIT 6', l.id).map((b) => ({ who: 'Bidder ••' + mask(b.user_id, l.id), amt: b.amount, mine: b.user_id === meId }));
@@ -192,26 +278,44 @@ function createApp(opts = {}) {
     }
     if (l.status === 'sold') { o.finalPrice = l.final_price; o.youWon = !!meId && l.winner_id === meId; }
     const mb = myBids && myBids.get(l.id); if (mb) o.myBid = mb;
+    if (l.status === 'unsold' && l.note) o.note = l.note;
     return o;
   }
+  const entryOut = (e) => ({ id: e.id, lotId: e.lot_id, title: e.title, bidder: e.bidder_name, phone: e.bidder_phone, tin: e.tin, license: e.license, docRef: e.doc_ref, cpoNo: e.cpo_no, cpoBank: e.cpo_bank, amount: e.amount, status: e.status, note: e.note, at: e.created_at, refundRef: e.refund_ref, branch: e.org_name });
+  const ENTRY_SQL = 'SELECT e.*, l.title, l.org_id, (SELECT name FROM users WHERE id=l.org_id) org_name, u.name bidder_name, u.phone bidder_phone, u.tin, u.license FROM entries e JOIN lots l ON l.id=e.lot_id JOIN users u ON u.id=e.user_id';
+  const cmpOut = (c) => ({ id: c.id, lotId: c.lot_id, title: c.title, by: c.by_name, body: c.body, at: c.created_at, status: c.status, reply: c.reply, repliedAt: c.replied_at });
+  const CMP_SQL = 'SELECT c.*, l.title, (SELECT name FROM users WHERE id=c.user_id) by_name FROM complaints c JOIN lots l ON l.id=c.lot_id';
+  const orgOut = (r) => ({ id: r.id, name: r.name, kind: r.kind || 'branch', logo: r.logo, bank: r.bank_name, account: r.bank_account, holder: r.bank_holder, cpo: r.cpo_payee, address: r.office_address, phone: r.office_phone, view: r.view_info });
   function stateFor(user) {
     closeDue();
     const meId = user ? user.id : null, s = settings();
-    const orgs = all("SELECT u.id,u.name,u.kind,COALESCE((SELECT updated FROM logos WHERE owner=CAST(u.id AS TEXT)),0) logo FROM users u WHERE u.role='branch' AND u.status='active' ORDER BY u.kind, u.name").map((r) => ({ id: r.id, name: r.name, kind: r.kind || 'branch', logo: r.logo }));
+    const orgs = all("SELECT u.*,COALESCE((SELECT updated FROM logos WHERE owner=CAST(u.id AS TEXT)),0) logo FROM users u WHERE u.role='branch' AND u.status='active' ORDER BY u.kind, u.name").map(orgOut);
     const myBids = new Map();
     if (meId) for (const b of all('SELECT lot_id, MAX(amount) amount, MAX(ref) ref FROM bids WHERE user_id=? GROUP BY lot_id', meId)) myBids.set(b.lot_id, { amt: b.amount, ref: b.ref || '' });
     const lots = all(`SELECT l.* FROM lots l JOIN users u ON u.id=l.org_id WHERE u.status='active' AND l.status!='cancelled' AND (l.status='open' OR l.closed_at>? OR l.id IN (SELECT lot_id FROM bids WHERE user_id=?)) ORDER BY l.end_at`, now() - 14 * DAY, meId || 0).map((l) => pubLot(l, meId, myBids));
     const posts = all('SELECT id,kind,title,body,org_id,ref,closes_at,created_at FROM posts ORDER BY created_at DESC LIMIT 30');
-    const out = { settings: { depositPercent: num(s.depositPercent, 5), buyerFeePercent: num(s.buyerFeePercent, 2), payInstructions: s.payInstructions, brandName: s.brandName, paymentDays: num(s.paymentDays, 3), logo: (get("SELECT updated FROM logos WHERE owner='site'") || {}).updated || 0, supportPhone: s.supportPhone || '', supportEmail: s.supportEmail || '', supportAddress: s.supportAddress || '' }, orgs, lots, posts, now: now(), me: null };
+    const out = { settings: { docFee: num(s.docFee, 400), depositPercent: num(s.depositPercent, 5), buyerFeePercent: num(s.buyerFeePercent, 0), payInstructions: s.payInstructions, brandName: s.brandName, paymentDays: num(s.paymentDays, 3), extendDays: num(s.extendDays, 7), pickupDays: num(s.pickupDays, 15), complaintDays: num(s.complaintDays, 3), specialMax: num(s.specialMax, 300000), noLicenceMax: num(s.noLicenceMax, 100000), minBidders: num(s.minBidders, 2), noticeFirst: num(s.noticeFirst, 7), noticeRepeat: num(s.noticeRepeat, 5), enforceNotice: s.enforceNotice === '1', rentPerDay: num(s.rentPerDay, 0), logo: (get("SELECT updated FROM logos WHERE owner='site'") || {}).updated || 0, supportPhone: s.supportPhone || '', supportEmail: s.supportEmail || '', supportAddress: s.supportAddress || '' }, orgs, lots, posts, now: now(), me: null };
     if (user) {
       out.me = { id: user.id, username: user.username, name: user.name, role: user.role, mustChange: !!user.must_change };
-      if (user.role === 'bidder') out.me.orders = all("SELECT o.*, l.title, l.org_id oid, (SELECT name FROM users WHERE id=o.org_id) org_name FROM orders o JOIN lots l ON l.id=o.lot_id WHERE o.buyer_id=? ORDER BY o.created_at DESC", user.id).map(orderOut);
-      if (user.role === 'branch') out.me.orders = all("SELECT o.*, l.title, (SELECT name FROM users WHERE id=o.buyer_id) buyer_name, (SELECT phone FROM users WHERE id=o.buyer_id) buyer_phone FROM orders o JOIN lots l ON l.id=o.lot_id WHERE o.org_id=? ORDER BY o.created_at DESC", user.id).map(orderOut);
+      if (user.role === 'bidder') {
+        Object.assign(out.me, { tin: user.tin, license: user.license, banUntil: banned(user) ? user.ban_until : 0 });
+        out.me.entries = all(ENTRY_SQL + ' WHERE e.user_id=? ORDER BY e.id DESC', user.id).map(entryOut);
+        out.me.orders = all("SELECT o.*, l.title, l.org_id oid, (SELECT name FROM users WHERE id=o.org_id) org_name FROM orders o JOIN lots l ON l.id=o.lot_id WHERE o.buyer_id=? ORDER BY o.created_at DESC", user.id).map(orderOut);
+        out.me.complaints = all(CMP_SQL + ' WHERE c.user_id=? ORDER BY c.id DESC', user.id).map(cmpOut);
+      }
+      if (user.role === 'branch') {
+        Object.assign(out.me, orgOut(Object.assign({ logo: 0 }, user)));
+        out.me.orders = all("SELECT o.*, l.title, (SELECT name FROM users WHERE id=o.buyer_id) buyer_name, (SELECT phone FROM users WHERE id=o.buyer_id) buyer_phone FROM orders o JOIN lots l ON l.id=o.lot_id WHERE o.org_id=? ORDER BY o.created_at DESC", user.id).map(orderOut);
+        out.me.entries = all(ENTRY_SQL + " WHERE l.org_id=? AND e.status IN ('pending','refund_due') ORDER BY e.id DESC", user.id).map(entryOut);
+        out.me.complaints = all(CMP_SQL + ' WHERE l.org_id=? ORDER BY c.id DESC LIMIT 100', user.id).map(cmpOut);
+      }
     }
     return out;
   }
-  const orderOut = (o) => ({ id: o.id, lotId: o.lot_id, title: o.title, amount: o.amount, fee: o.fee, deposit: o.deposit, total: o.total, status: o.status, dueAt: o.due_at, createdAt: o.created_at, paidAt: o.paid_at, branch: o.org_name, buyer: o.buyer_name, buyerPhone: o.buyer_phone });
-
+  const orderOut = (o) => {
+    const rent = o.status === 'paid' && o.pickup_by && now() > o.pickup_by ? Math.ceil((now() - o.pickup_by) / DAY) * num(settings().rentPerDay, 0) : 0;
+    return { id: o.id, lotId: o.lot_id, title: o.title, amount: o.amount, fee: o.fee, deposit: o.deposit, total: o.total, balance: Math.max(0, o.total - o.deposit), status: o.status, dueAt: o.due_at, createdAt: o.created_at, paidAt: o.paid_at, pickupBy: o.pickup_by || 0, extended: !!o.extended, note: o.note || '', rent, branch: o.org_name, buyer: o.buyer_name, buyerPhone: o.buyer_phone };
+  };
   /* ---------- realtime ---------- */
   const clients = new Set(); let pending = null;
   function notify() { if (pending) return; pending = setTimeout(() => { pending = null; for (const r of clients) r.write('data: changed\n\n'); }, 80); }
@@ -240,7 +344,7 @@ function createApp(opts = {}) {
     res.end(body);
   }
   const need = (user, ...roles) => { if (!user) fail(401, 'auth_required'); if (roles.length && !roles.includes(user.role)) fail(403, 'forbidden'); return user; };
-  const userRow = (u) => ({ id: u.id, username: u.username, name: u.name, phone: u.phone, role: u.role, status: u.status, kind: u.kind || 'branch', logo: u.logo || 0, createdAt: u.created_at, lastLogin: u.last_login });
+  const userRow = (u) => ({ id: u.id, username: u.username, name: u.name, phone: u.phone, role: u.role, status: u.status, kind: u.kind || 'branch', logo: u.logo || 0, createdAt: u.created_at, lastLogin: u.last_login, bank: u.bank_name, account: u.bank_account, holder: u.bank_holder, cpo: u.cpo_payee, address: u.office_address, officePhone: u.office_phone, view: u.view_info, tin: u.tin, license: u.license, banUntil: u.ban_until > now() ? u.ban_until : 0 });
 
   /* ---------- API ---------- */
   const routes = [];
@@ -327,12 +431,17 @@ function createApp(opts = {}) {
     }
     const title = str(body.title, 3, 120, 'bad_title'), mode = body.mode === 'live' ? 'live' : 'sealed';
     const cat = CATS.includes(body.cat) ? body.cat : fail(400, 'bad_input'), src = SRCS.includes(body.src) ? body.src : fail(400, 'bad_input'), duty = DUTIES.includes(body.duty) ? body.duty : fail(400, 'bad_input');
+    const st = settings(), special = body.special ? 1 : 0, repeat = body.repeat ? 1 : 0;
     const price = int(body.price, 1, 1e11, 'bad_price'), step = mode === 'live' ? int(body.step, 1, 1e10, 'bad_step') : 0, days = int(body.days, 1, 30, 'bad_input');
+    if (special && price > num(st.specialMax, 300000)) fail(400, 'special_limit', { max: num(st.specialMax, 300000) });
+    const minDays = st.enforceNotice === '1' ? num(repeat ? st.noticeRepeat : st.noticeFirst, 7) : 1;
+    if (days < minDays) fail(400, 'notice_short', { min: minDays });
+    const view = typeof body.view === 'string' ? body.view.trim().slice(0, 200) : '';
     const descr = typeof body.desc === 'string' ? body.desc.trim().slice(0, 1000) : '', ref = typeof body.ref === 'string' ? body.ref.trim().slice(0, 60) : '';
     const photos = Array.isArray(body.photos) ? body.photos.slice(0, 3).map(decodePhoto) : [];
     const id = tx(() => {
       const seq = get('SELECT COALESCE(MAX(seq),0)+1 n FROM lots').n, id = 'CH-' + (4100 + seq);
-      run('INSERT INTO lots(seq,id,org_id,title,descr,cat,mode,initial,price,step,end_at,src,ref,duty,photos,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', seq, id, orgId, title, descr, cat, mode, price, price, step, now() + days * DAY, src, ref, duty, photos.length, now());
+      run('INSERT INTO lots(seq,id,org_id,title,descr,cat,mode,initial,price,step,end_at,src,ref,duty,photos,created_at,special,repeat,view_info) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', seq, id, orgId, title, descr, cat, mode, price, price, step, st.enforceNotice === '1' ? addWork(now(), days) : now() + days * DAY, src, ref, duty, photos.length, now(), special, repeat, view);
       photos.forEach((p, i) => run('INSERT INTO photos(lot_id,idx,mime,data) VALUES(?,?,?,?)', id, i, p.mime, p.buf));
       audit(user, 'lot.create', id, title + (user.role === 'admin' ? ' (by admin)' : '')); return id;
     });
@@ -345,13 +454,97 @@ function createApp(opts = {}) {
     if (lot.status !== 'open' || lot.bidders > 0) fail(409, 'has_bids');
     run('DELETE FROM lots WHERE id=?', lot.id); audit(user, 'lot.delete', lot.id, lot.title); notify(); send(res, 200, { ok: true });
   });
-  route('POST', '/api/orders/:id/status', async ({ user, body, params, res }) => {
-    need(user, 'branch', 'admin');
-    const o = get('SELECT * FROM orders WHERE id=?', Number(params[0])); if (!o) fail(404, 'not_found');
+  function orderFor(user, id, roles) {
+    const o = get('SELECT * FROM orders WHERE id=?', Number(id)); if (!o) fail(404, 'not_found');
     if (user.role === 'branch' && o.org_id !== user.id) fail(403, 'forbidden');
-    const st = body.status; if (!['awaiting_payment', 'paid', 'collected', 'defaulted'].includes(st)) fail(400, 'bad_input');
-    run('UPDATE orders SET status=?,paid_at=? WHERE id=?', st, st === 'paid' || st === 'collected' ? (o.paid_at || now()) : null, o.id);
+    if (user.role === 'bidder' && o.buyer_id !== user.id) fail(403, 'forbidden');
+    return o;
+  }
+  route('POST', '/api/orders/:id/approve', async ({ user, body, params, res }) => {
+    need(user, 'branch', 'admin'); const o = orderFor(user, params[0]); if (o.status !== 'awaiting_approval') fail(409, 'bad_state');
+    const lot = get('SELECT * FROM lots WHERE id=?', o.lot_id);
+    if (body.decision === 'reject') {
+      tx(() => { const e = get('SELECT * FROM entries WHERE lot_id=? AND user_id=?', lot.id, o.buyer_id); if (e) run("UPDATE entries SET status='refund_due',note='Not approved by the branch manager' WHERE id=?", e.id); offerNext(o, lot, 'cancelled', 'Winner not approved by the branch manager'); });
+      audit(user, 'order.reject', lot.id);
+    } else {
+      run("UPDATE orders SET status='awaiting_payment',due_at=? WHERE id=?", addWork(now(), num(settings().paymentDays, 3)), o.id); run('UPDATE lots SET approved_at=? WHERE seq=?', now(), lot.seq);
+      audit(user, 'order.approve', lot.id);
+    }
+    notify(); send(res, 200, { ok: true });
+  });
+  route('POST', '/api/orders/:id/extend', async ({ user, params, res }) => {
+    need(user, 'bidder', 'branch', 'admin'); const o = orderFor(user, params[0]);
+    if (o.status !== 'awaiting_payment' || o.extended || o.due_at <= now()) fail(409, 'bad_state');
+    run('UPDATE orders SET due_at=?,extended=1 WHERE id=?', addWork(o.due_at, num(settings().extendDays, 7)), o.id); audit(user, 'order.extend', o.lot_id); notify(); send(res, 200, { ok: true });
+  });
+  route('POST', '/api/orders/:id/status', async ({ user, body, params, res }) => {
+    need(user, 'branch', 'admin'); const o = orderFor(user, params[0]), lot = get('SELECT * FROM lots WHERE id=?', o.lot_id);
+    const st = body.status; if (!['paid', 'collected', 'defaulted', 'unclaimed'].includes(st)) fail(400, 'bad_input');
+    const ok = { paid: ['awaiting_payment'], collected: ['paid'], unclaimed: ['paid'], defaulted: ['awaiting_payment'] }[st]; if (!ok.includes(o.status)) fail(409, 'bad_state');
+    tx(() => {
+      if (st === 'paid') run("UPDATE orders SET status='paid',paid_at=?,pickup_by=? WHERE id=?", now(), addWork(now(), num(settings().pickupDays, 15)), o.id);
+      else if (st === 'defaulted') { forfeit(o, lot, 'Did not pay'); offerNext(o, lot, 'defaulted', 'Winner did not pay'); }
+      else run('UPDATE orders SET status=? WHERE id=?', st, o.id);
+    });
     audit(user, 'order.' + st, o.lot_id); notify(); send(res, 200, { ok: true });
+  });
+
+  /* bidder: profile, entry to a lot, complaints */
+  route('PATCH', '/api/profile', async ({ user, body, res }) => {
+    need(user, 'bidder', 'branch');
+    if (user.role === 'bidder') {
+      if (body.tin !== undefined) { const v = String(body.tin).trim(); if (v && !/^\d{10}$/.test(v)) fail(400, 'bad_tin'); run('UPDATE users SET tin=? WHERE id=?', v, user.id); }
+      if (body.license !== undefined) run('UPDATE users SET license=? WHERE id=?', str(body.license, 0, 40, 'bad_input'), user.id);
+    } else saveProfile(user.id, body);
+    audit(user, 'profile.update', user.username); notify(); send(res, 200, { ok: true });
+  });
+  function saveProfile(id, body) {
+    const f = { bank_name: ['bank', 60], bank_account: ['account', 40], bank_holder: ['holder', 80], cpo_payee: ['cpo', 80], office_address: ['address', 160], office_phone: ['phone', 40], view_info: ['view', 200] };
+    for (const [col, [key, max]] of Object.entries(f)) if (body[key] !== undefined) run('UPDATE users SET ' + col + '=? WHERE id=?', str(body[key], 0, max, 'bad_input'), id);
+  }
+  route('POST', '/api/lots/:id/entry', async ({ user, body, params, res }) => {
+    need(user, 'bidder'); limit('entry:' + user.id, 30, 3600000);
+    if (banned(user)) fail(403, 'banned', { until: user.ban_until });
+    const lot = get('SELECT * FROM lots WHERE id=?', params[0]); if (!lot || lot.status !== 'open' || lot.end_at <= now()) fail(409, 'closed');
+    const s = settings(), r = reqFor(lot, s);
+    if (r.tin && !/^\d{10}$/.test(user.tin)) fail(409, 'need_tin'); if (r.license && !user.license) fail(409, 'need_license');
+    const old = get('SELECT * FROM entries WHERE lot_id=? AND user_id=?', lot.id, user.id);
+    if (old && old.status !== 'rejected') fail(409, 'entry_exists');
+    let docRef = null, cpoNo = null, cpoBank = null, status = 'approved';
+    if (r.doc) {
+      docRef = str(body.docRef, 4, 40, 'bad_reference').toUpperCase(); cpoNo = str(body.cpoNo, 3, 40, 'bad_cpo'); cpoBank = str(body.cpoBank, 2, 60, 'bad_cpo');
+      if (body.attest !== true) fail(400, 'attest_required');
+      if (get("SELECT 1 FROM entries WHERE doc_ref=? AND status!='rejected'", docRef)) fail(409, 'reference_used');
+      status = 'pending';
+    }
+    if (old) run('UPDATE entries SET doc_ref=?,cpo_no=?,cpo_bank=?,amount=?,attest=1,status=?,note=NULL,created_at=?,decided_at=NULL WHERE id=?', docRef, cpoNo, cpoBank, r.security, status, now(), old.id);
+    else run('INSERT INTO entries(lot_id,user_id,doc_ref,cpo_no,cpo_bank,amount,attest,status,created_at) VALUES(?,?,?,?,?,?,1,?,?)', lot.id, user.id, docRef, cpoNo, cpoBank, r.security, status, now());
+    audit(user, 'entry.submit', lot.id); notify(); send(res, 200, { status });
+  });
+  route('POST', '/api/entries/:id/decide', async ({ user, body, params, res }) => {
+    need(user, 'branch', 'admin'); const e = get('SELECT e.*, l.org_id FROM entries e JOIN lots l ON l.id=e.lot_id WHERE e.id=?', Number(params[0])); if (!e) fail(404, 'not_found');
+    if (user.role === 'branch' && e.org_id !== user.id) fail(403, 'forbidden'); if (e.status !== 'pending') fail(409, 'already_decided');
+    const ok = body.decision === 'approve'; if (!ok && body.decision !== 'reject') fail(400, 'bad_input');
+    const note = ok ? null : str(typeof body.note === 'string' && body.note.trim() ? body.note : 'Payment or cheque not verified', 1, 200);
+    run('UPDATE entries SET status=?,note=?,decided_at=?,decided_by=? WHERE id=?', ok ? 'approved' : 'rejected', note, now(), user.username, e.id);
+    audit(user, ok ? 'entry.approve' : 'entry.reject', e.lot_id, 'user ' + e.user_id); notify(); send(res, 200, { ok: true });
+  });
+  route('POST', '/api/entries/:id/refund', async ({ user, body, params, res }) => {
+    need(user, 'branch', 'admin'); const e = get('SELECT e.*, l.org_id FROM entries e JOIN lots l ON l.id=e.lot_id WHERE e.id=?', Number(params[0])); if (!e) fail(404, 'not_found');
+    if (user.role === 'branch' && e.org_id !== user.id) fail(403, 'forbidden'); if (e.status !== 'refund_due') fail(409, 'bad_state');
+    run("UPDATE entries SET status='refunded',refund_ref=? WHERE id=?", str(body.ref || 'returned', 1, 60, 'bad_input'), e.id); audit(user, 'entry.refund', e.lot_id, 'user ' + e.user_id); notify(); send(res, 200, { ok: true });
+  });
+  route('POST', '/api/lots/:id/complaint', async ({ user, body, params, res }) => {
+    need(user, 'bidder'); limit('cmp:' + user.id, 10, 3600000);
+    const lot = get('SELECT * FROM lots WHERE id=?', params[0]); if (!lot || !lot.closed_at) fail(409, 'bad_state');
+    if (!get('SELECT 1 FROM bids WHERE lot_id=? AND user_id=?', lot.id, user.id)) fail(403, 'forbidden');
+    if (now() > addWork(lot.closed_at, num(settings().complaintDays, 3))) fail(409, 'complaint_late');
+    run('INSERT INTO complaints(lot_id,user_id,body,created_at) VALUES(?,?,?,?)', lot.id, user.id, str(body.body, 5, 1000, 'bad_input'), now()); audit(user, 'complaint.submit', lot.id); notify(); send(res, 200, { ok: true });
+  });
+  route('POST', '/api/complaints/:id/reply', async ({ user, body, params, res }) => {
+    need(user, 'branch', 'admin'); const c = get('SELECT c.*, l.org_id FROM complaints c JOIN lots l ON l.id=c.lot_id WHERE c.id=?', Number(params[0])); if (!c) fail(404, 'not_found');
+    if (user.role === 'branch' && c.org_id !== user.id) fail(403, 'forbidden');
+    run("UPDATE complaints SET reply=?,status='answered',replied_at=? WHERE id=?", str(body.reply, 1, 1000, 'bad_input'), now(), c.id); audit(user, 'complaint.reply', c.lot_id); notify(); send(res, 200, { ok: true });
   });
 
   /* admin */
@@ -387,6 +580,7 @@ function createApp(opts = {}) {
     const out = { ok: true };
     if (body.name !== undefined) { run('UPDATE users SET name=? WHERE id=?', str(body.name, 2, 80, 'bad_name'), b.id); audit(user, 'branch.rename', b.username, body.name); }
     if (body.kind !== undefined) { if (!['branch', 'organization'].includes(body.kind)) fail(400, 'bad_input'); run('UPDATE users SET kind=? WHERE id=?', body.kind, b.id); audit(user, 'branch.kind', b.username, body.kind); }
+    saveProfile(b.id, body);
     if (body.status !== undefined) {
       if (!['active', 'suspended'].includes(body.status)) fail(400, 'bad_input');
       run('UPDATE users SET status=? WHERE id=?', body.status, b.id); if (body.status === 'suspended') run('DELETE FROM sessions WHERE user_id=?', b.id);
@@ -417,6 +611,7 @@ function createApp(opts = {}) {
       if (!['active', 'suspended'].includes(body.status)) fail(400, 'bad_input'); if (u.id === user.id) fail(409, 'self');
       run('UPDATE users SET status=? WHERE id=?', body.status, u.id); if (body.status === 'suspended') run('DELETE FROM sessions WHERE user_id=?', u.id); audit(user, 'user.' + body.status, u.username);
     }
+    if (body.unban) { run('UPDATE users SET ban_until=0 WHERE id=?', u.id); run('DELETE FROM forfeits WHERE user_id=?', u.id); audit(user, 'user.unban', u.username); }
     if (body.resetPassword) { const pw = body.password || genPassword(); if (!okPassword(pw)) fail(400, 'bad_password'); run('UPDATE users SET pass=?,must_change=? WHERE id=?', await hashPw(pw), u.role === 'admin' ? 1 : 0, u.id); run('DELETE FROM sessions WHERE user_id=?', u.id); out.password = pw; audit(user, 'user.password', u.username); }
     send(res, 200, out);
   });
@@ -445,10 +640,16 @@ function createApp(opts = {}) {
     const csv = ['Lot,Title,Branch,Buyer,Buyer phone,Winning bid,Fee,Total,Status,Date'].concat(rows.map((o) => [o.lot_id, o.title, o.org_name, o.buyer_name, o.buyer_phone, o.amount, o.fee, o.total, o.status, new Date(o.created_at).toISOString().slice(0, 10)].map(q).join(','))).join('\n');
     res.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="chereta-orders.csv"', 'Cache-Control': 'no-store' }); res.end('﻿' + csv);
   });
+  route('GET', '/api/admin/entries', async ({ user, res, url }) => {
+    adm(user); const st = url.searchParams.get('status'), q = ['pending', 'approved', 'rejected', 'applied', 'refund_due', 'refunded', 'forfeited'].includes(st) ? st : 'pending';
+    send(res, 200, { entries: all(ENTRY_SQL + ' WHERE e.status=? ORDER BY e.id DESC LIMIT 300', q).map(entryOut) });
+  });
+  route('GET', '/api/admin/complaints', async ({ user, res }) => { adm(user); send(res, 200, { complaints: all(CMP_SQL + ' ORDER BY c.id DESC LIMIT 200').map(cmpOut) }); });
   route('GET', '/api/admin/settings', async ({ user, res }) => { adm(user); send(res, 200, { settings: settings(), logo: (get("SELECT updated FROM logos WHERE owner='site'") || {}).updated || 0 }); });
   route('PUT', '/api/admin/settings', async ({ user, body, res }) => {
     adm(user);
-    const rules = { depositPercent: () => String(int(body.depositPercent, 0, 100)), buyerFeePercent: () => String(int(body.buyerFeePercent, 0, 50)), paymentDays: () => String(int(body.paymentDays, 1, 30)), antiSnipeMinutes: () => String(int(body.antiSnipeMinutes, 0, 30)), payInstructions: () => str(body.payInstructions, 0, 600), brandName: () => str(body.brandName, 1, 40), supportPhone: () => str(body.supportPhone, 0, 40), supportEmail: () => str(body.supportEmail, 0, 80), supportAddress: () => str(body.supportAddress, 0, 160) };
+    const n = (k, a, b) => () => String(int(body[k], a, b));
+    const rules = { depositPercent: n('depositPercent', 0, 100), buyerFeePercent: n('buyerFeePercent', 0, 50), paymentDays: n('paymentDays', 1, 30), extendDays: n('extendDays', 0, 30), pickupDays: n('pickupDays', 1, 90), complaintDays: n('complaintDays', 1, 30), docFee: n('docFee', 0, 100000), specialMax: n('specialMax', 0, 1e9), noLicenceMax: n('noLicenceMax', 0, 1e9), noticeFirst: n('noticeFirst', 1, 30), noticeRepeat: n('noticeRepeat', 1, 30), enforceNotice: () => (body.enforceNotice === true || body.enforceNotice === 1 || body.enforceNotice === '1' ? '1' : '0'), minBidders: n('minBidders', 1, 10), tieHours: n('tieHours', 1, 240), rentPerDay: n('rentPerDay', 0, 1e7), antiSnipeMinutes: n('antiSnipeMinutes', 0, 30), payInstructions: () => str(body.payInstructions, 0, 600), brandName: () => str(body.brandName, 1, 40), supportPhone: () => str(body.supportPhone, 0, 40), supportEmail: () => str(body.supportEmail, 0, 80), supportAddress: () => str(body.supportAddress, 0, 160) };
     for (const [k, f] of Object.entries(rules)) if (body[k] !== undefined) { run('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value', k, f()); }
     audit(user, 'settings.update', '', Object.keys(body).join(',')); notify(); send(res, 200, { settings: settings() });
   });
