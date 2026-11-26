@@ -134,7 +134,7 @@ function apply(st){
     else{if(po&&po.price!==o.price)paintPrice(o,po.price,o.price); var h=$('#hist'); if(h)h.innerHTML=histHTML(o); updStatus(o)}
   }else if(S.panelFn&&sheet.classList.contains('open')&&S.panelFn!==authHTML&&S.panelFn!==pfHTML&&S.panelFn!==accountHTML&&S.panelFn!==entryHTML&&S.panelFn!==profHTML&&S.panelFn!==cmpHTML&&S.panelFn!==repHTML){var y2=sheet.scrollTop; sheet.innerHTML=S.panelFn(); sheet.scrollTop=y2}
   if(S.tab==='home')buildHome(); else if(S.tab==='browse'){if($('#count'))renderList()} else renderList();
-  updateHeader(); drawerBuild(); counts();
+  paintMsgs(); updateHeader(); drawerBuild(); counts();
 }
 var loadT=null; function loadSoon(){clearTimeout(loadT); loadT=setTimeout(load,200)}
 function connect(){
@@ -176,6 +176,19 @@ function filtered(){
     return true});
   a.sort(function(x,y){return S.sort==='low'?x.price-y.price:S.sort==='high'?y.price-x.price:x.end-y.end});
   return a}
+function portSVG(){
+  function box(x,y,c){return '<g transform="translate('+x+' '+y+')"><rect width="20" height="14" rx="1.5" fill="'+c+'"/><path d="M5 1v12M10 1v12M15 1v12" stroke="rgba(0,0,0,.22)" stroke-width="1"/></g>'}
+  var C=['#f5b82e','#e8743b','#2fb5a5','#d8575a','#7aa7ff','#f5b82e'], r1='', r2='', i;
+  for(i=0;i<6;i++)r1+=box(40+i*22,86,C[i]);
+  [62,84,106,150].forEach(function(x,k){r2+=box(x,72,C[(k+2)%6])});
+  var wave='M-60 128q15-8 30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0t30 0V150H-60Z';
+  return '<svg class="port" viewBox="0 0 300 150" aria-hidden="true" focusable="false">'+
+   '<circle cx="232" cy="34" r="16" fill="#fff" opacity=".14"/>'+
+   '<g class="ship"><path d="M16 100H216L202 124H38Z" fill="#0a1a38"/><path d="M20 106H212" stroke="#f5b82e" stroke-width="2"/>'+r1+r2+'<rect x="190" y="68" width="22" height="32" rx="2" fill="#e9eefc"/><rect x="194" y="73" width="14" height="4" fill="#0a1a38" opacity=".7"/><rect x="194" y="81" width="14" height="4" fill="#0a1a38" opacity=".7"/><rect x="198" y="58" width="6" height="10" fill="#e9eefc"/><g class="cs">'+box(129,72,'#f5b82e')+'</g></g>'+
+   '<rect x="232" y="100" width="68" height="50" fill="#0a1a38" opacity=".85"/><rect x="232" y="98" width="68" height="3" fill="#7aa7ff" opacity=".5"/>'+
+   '<g stroke="#e9eefc" stroke-width="2" fill="none" opacity=".9"><path d="M262 24V98M280 24V98M262 40L280 24M262 62L280 40M262 84L280 62M100 24H292"/><path d="M282 24L292 24" /></g>'+
+   '<g transform="translate(255 0)"><g class="cx"><rect x="-6" y="25" width="12" height="6" fill="#f5b82e"/><rect class="cab" x="-.5" y="31" width="1" height="100" fill="#e9eefc"/><g class="cn"><rect x="-10" y="0" width="20" height="14" rx="1.5" fill="#d8575a"/><path d="M-5 1v12M0 1v12M5 1v12" stroke="rgba(0,0,0,.22)"/></g></g></g>'+
+   '<g class="wv"><path d="'+wave+'" fill="#7aa7ff" opacity=".28"/></g><g class="wv w2"><path d="'+wave+'" fill="#0a1a38" opacity=".5" transform="translate(0 8)"/></g></svg>'}
 function buildHome(){
   var n=nowMs(), open=LOTS.filter(isOpen), liveN=open.filter(function(l){return l.mode==='live'}).length, soon=open.filter(function(l){return l.end-n<6*H}).length;
   function orgCards(kind){return ORGS.filter(function(o){return ORG[o].kind===kind}).map(function(o,i){var c=open.filter(function(l){return l.org===o}).length, g=ORG[o];
@@ -185,14 +198,14 @@ function buildHome(){
     return '<button class="cc" style="--i:'+i+'" data-catfilter="'+g+'"><span class="tile" style="--h:'+k.h+'">'+ic(k.icon)+'</span>'+tr('cat_'+g)+'<small>'+c+'</small></button>'}).join('');
   var r=role(), cta=r==='branch'?['m_portal','']:r==='admin'?['m_admin','']:[ 'o_cta_t','o_cta_d'];
   view.innerHTML=
-   '<section class="banner"><div><small>'+tr('t_browse')+'</small><b>'+tr('live_n').replace('{n}',liveN)+'</b><p>'+tr('soon_n').replace('{n}',soon)+'</p><button class="btn-s" data-golive>'+tr('see_live')+'</button></div><div class="orb"><i></i><i></i><i></i>'+ic('i-hammer')+'</div></section>'+
+   '<div id="msgs"></div><section class="banner"><div><small>'+tr('t_browse')+'</small><b>'+tr('live_n').replace('{n}',liveN)+'</b><p>'+tr('soon_n').replace('{n}',soon)+'</p><button class="btn-s" data-golive>'+tr('see_live')+'</button></div>'+portSVG()+'</section>'+
    
    (nB?'<div class="sec"><h2>'+tr('orgs_t')+'</h2><span>'+nB+'</span></div><div class="orgs">'+orgCards('branch')+'</div>':'')+(nP?'<div class="sec"><h2>'+tr('orgs_p')+'</h2><span>'+nP+'</span></div><div class="orgs">'+orgCards('organization')+'</div>':'')+
    '<div class="sec"><h2>'+tr('cats_t')+'</h2></div><div class="cats">'+cats+'</div>'+
    '<div class="sec"><h2>'+tr('nt_t')+'</h2></div>'+
    '<div class="seg-ctl two" id="ntseg"><i style="transform:translateX('+(S.nt==='news'?0:100)+'%)"></i><button data-nt="news" aria-pressed="'+(S.nt==='news')+'">'+tr('n_news')+'</button><button data-nt="tenders" aria-pressed="'+(S.nt==='tenders')+'">'+tr('n_tend')+'</button></div>'+
    '<div class="nlist" id="nlist"></div>';
-  renderNT();
+  renderNT(); paintMsgs();
 }
 function renderNT(){
   var el=$('#nlist'); if(!el)return;
@@ -209,7 +222,7 @@ function buildBrowse(){
   var modes=['all','live','sealed'], mi=modes.indexOf(S.mode);
   var chips=(S.cat!=='all'?'<button class="chip" data-catclear aria-pressed="true">'+tr('cat_'+S.cat)+ic('i-close')+'</button>':'')+
     '<button class="chip" data-org="all" aria-pressed="'+(S.org==='all')+'">'+tr('o_all')+'</button>'+ORGS.map(function(o){return '<button class="chip" data-org="'+o+'" aria-pressed="'+(S.org===o)+'">'+ORG[o][S.lang]+'</button>'}).join('');
-  view.innerHTML=
+  view.innerHTML='<div id="msgs"></div>'+
    '<label class="search">'+ic('i-search')+'<input id="q" type="search" autocomplete="off" placeholder="'+tr('search')+'" value="'+esc(S.q)+'"></label>'+
    '<div class="row"><div class="seg-ctl" id="modes"><i style="transform:translateX('+(mi*100)+'%)"></i>'+modes.map(function(m){return '<button data-mode="'+m+'" aria-pressed="'+(S.mode===m)+'">'+tr(m)+'</button>'}).join('')+'</div>'+
    '<select class="sort" id="sort" aria-label="Sort"><option value="end">'+tr('s_end')+'</option><option value="low">'+tr('s_low')+'</option><option value="high">'+tr('s_high')+'</option></select></div>'+
@@ -253,10 +266,36 @@ function labels(){
   var dn=$('#dn-org'); if(dn)dn.textContent=tr(role()==='branch'?'m_portal':role()==='admin'?'m_admin':'m_org');
   updateHeader(); drawerBuild();
 }
+function msgList(){
+  var m=S.me, out=[]; if(!m)return out;
+  function lt(id){var l=byId(id); return l?l.t[S.lang]:id}
+  if(role()==='bidder'){
+    if(m.banUntil)out.push({t:'bad',x:tr('en_banned').replace('{d}',dfmt(m.banUntil))});
+    (m.orders||[]).forEach(function(o){var x=lt(o.lotId)||o.title, k=o.status;
+      if(k==='awaiting_approval')out.push({t:'warn',lot:o.lotId,x:tr('mg_ord_wait').replace('{l}',x)});
+      else if(k==='awaiting_payment')out.push({t:'warn',lot:o.lotId,x:tr('mg_ord_pay').replace('{l}',x).replace('{n}',fmt(o.balance)).replace('{d}',dfmt(o.dueAt))});
+      else if(k==='paid')out.push({t:'good',lot:o.lotId,x:tr('mg_ord_paid').replace('{l}',x).replace('{d}',dfmt(o.pickupBy))});
+      else if(k==='defaulted'||k==='cancelled'||k==='unclaimed')out.push({t:'bad',lot:o.lotId,x:tr('os_'+k)+': '+x})});
+    (m.entries||[]).forEach(function(e){var l=byId(e.lotId), x=lt(e.lotId);
+      if(e.status==='approved'&&l&&isOpen(l))out.push({t:'good',lot:e.lotId,x:tr('mg_en_ok').replace('{l}',x)});
+      else if(e.status==='pending')out.push({t:'warn',lot:e.lotId,x:tr('mg_en_wait').replace('{l}',x)});
+      else if(e.status==='rejected')out.push({t:'bad',lot:e.lotId,x:tr('mg_en_no').replace('{l}',x)+' '+esc(e.note||'')});
+      else if(e.status==='refund_due')out.push({t:'warn',lot:e.lotId,x:tr('mg_ref_due').replace('{l}',x).replace('{n}',fmt(e.amount))});
+      else if(e.status==='refunded')out.push({t:'good',lot:e.lotId,x:tr('mg_ref_ok').replace('{l}',x)});
+      else if(e.status==='forfeited')out.push({t:'bad',lot:e.lotId,x:tr('mg_forf').replace('{l}',x)})});
+    (m.complaints||[]).forEach(function(c){if(c.reply)out.push({t:'good',lot:c.lotId,x:tr('mg_cmp').replace('{l}',lt(c.lotId))+' '+esc(c.reply)})});
+  }else if(role()==='branch'){
+    var pe=(m.entries||[]).filter(function(e){return e.status==='pending'}).length, rf=(m.entries||[]).filter(function(e){return e.status==='refund_due'}).length, wa=(m.orders||[]).filter(function(o){return o.status==='awaiting_approval'}).length, cp=(m.complaints||[]).filter(function(c){return !c.reply}).length;
+    if(pe)out.push({t:'warn',nav:1,x:tr('mg_b_ent').replace('{n}',pe)}); if(wa)out.push({t:'warn',nav:1,x:tr('mg_b_win').replace('{n}',wa)}); if(rf)out.push({t:'warn',nav:1,x:tr('mg_b_ref').replace('{n}',rf)}); if(cp)out.push({t:'warn',nav:1,x:tr('mg_b_cmp').replace('{n}',cp)});
+  }
+  return out}
+function paintMsgs(){
+  var el=$('#msgs'); if(!el)return; var l=msgList();
+  el.innerHTML=l.length?'<div class="msgs">'+l.slice(0,6).map(function(g){return '<button class="msg '+g.t+'" '+(g.lot?'data-msglot="'+g.lot+'"':'data-nav="org"')+'>'+ic(g.t==='good'?'i-check':g.t==='bad'?'i-close':'i-shield')+'<span>'+g.x+'</span></button>'}).join('')+'</div>':''}
 function applyBrand(){
   var b=$('.brand'); if(!b)return;
   var src=CFG.siteLogo?logoURL('site',CFG.siteLogo):CFG.logo, cur=$('img',b);
-  if(src&&!cur){var im=new Image(); im.alt=''; im.src=src; im.style.cssText='width:38px;height:38px;object-fit:contain;flex:none;border-radius:8px'; var sv=$('svg',b); if(sv)b.replaceChild(im,sv)}
+  if(src&&!cur){var im=new Image(); im.alt=''; im.src=src; im.style.cssText='width:38px;height:38px;object-fit:cover;flex:none;border-radius:50%'; var sv=$('svg',b); if(sv)b.replaceChild(im,sv)}
   else if(src&&cur&&cur.getAttribute('src')!==src)cur.src=src;
   var nm=$('b',b); if(nm)nm.textContent=CFG.brandName; document.title=CFG.brandName+' | '+tr('brand_sub');
 }
@@ -625,6 +664,7 @@ document.addEventListener('click',function(e){
   var tab=t.closest('#dnav [data-tab]'); if(tab){var nt=tab.getAttribute('data-tab'); if(nt!==S.tab)goTab(nt); return}
   var heart=t.closest('[data-heart]'); if(heart){e.stopPropagation(); var id=heart.getAttribute('data-heart'); var on=!S.watch[id]; if(on)S.watch[id]=1; else delete S.watch[id];
     heart.setAttribute('aria-pressed',on); heart.classList.remove('pop'); void heart.offsetWidth; heart.classList.add('pop'); toast(on?tr('w_on'):tr('w_off')); counts(); if(S.tab==='watch')setTimeout(renderList,350); return}
+  var ml=t.closest('[data-msglot]'); if(ml){openSheet(ml.getAttribute('data-msglot')); return}
   var of=t.closest('[data-orgfilter]'); if(of){S.org=of.getAttribute('data-orgfilter'); S.cat='all'; S.mode='all'; S.q=''; goTab('browse'); return}
   var cf=t.closest('[data-catfilter]'); if(cf){S.cat=cf.getAttribute('data-catfilter'); S.org='all'; S.mode='all'; S.q=''; goTab('browse'); return}
   if(t.closest('[data-golive]')){S.mode='live'; S.org='all'; S.cat='all'; S.q=''; goTab('browse'); return}
@@ -711,7 +751,7 @@ setInterval(function(){
 },1000);
 
 /* ---------- guided tour (Tutorials) ---------- */
-Object.assign(T.en,{bk_t:'Branch bank and office',bk_bank:'Bank',bk_acct:'Account number',bk_holder:'Account name',bk_cpo:'CPO payable to',bk_addr:'Office address',bk_phone:'Office phone',bk_view:'Viewing days and hours',bk_none:'This branch has not published its bank details yet.',
+Object.assign(T.en,{mg_ord_wait:'You won {l}. Waiting for the branch manager to approve.',mg_ord_pay:'Payment approved for {l}. Pay {n} ETB by {d}.',mg_ord_paid:'Payment received for {l}. Collect your goods by {d}.',mg_en_ok:'Approved: you can now bid on {l}.',mg_en_wait:'Waiting for the branch to check your payment for {l}.',mg_en_no:'Not approved for {l}:',mg_ref_due:'Your {n} ETB security for {l} will be returned.',mg_ref_ok:'Your security for {l} was returned.',mg_forf:'Your security for {l} was forfeited.',mg_cmp:'Reply to your complaint on {l}:',mg_b_ent:'{n} bid registration(s) to check',mg_b_win:'{n} winner(s) waiting for your approval',mg_b_ref:'{n} security refund(s) to pay back',mg_b_cmp:'{n} complaint(s) to answer',bk_t:'Branch bank and office',bk_bank:'Bank',bk_acct:'Account number',bk_holder:'Account name',bk_cpo:'CPO payable to',bk_addr:'Office address',bk_phone:'Office phone',bk_view:'Viewing days and hours',bk_none:'This branch has not published its bank details yet.',
  how_t:'How to bid on this lot',rq_doc:'Tender document fee',rq_doc_v:'{n} ETB, not refundable',rq_sec:'Bid security ({p}%)',rq_sec_v:'{n} ETB by bank-certified cheque or CPO',rq_tin:'Taxpayer number (TIN)',rq_lic:'Valid trade licence',rq_req:'Required',rq_none:'No bid security or document fee',sp_t:'Special sale',
  en_t:'Register for this lot',en_btn:'Register to bid on this lot',en_again:'Register again',en_d:'Pay the {n} ETB document fee into the branch bank account below and keep the receipt. Get a bank-certified cheque or CPO for the bid security ({p}% = {s} ETB) payable as shown. Then enter the details here. The branch checks them before you can bid.',en_doc:'Document fee receipt number',en_cpo:'CPO or cheque number',en_bank:'Issuing bank',en_att:'I confirm these details are true and I accept the auction rules.',en_tin:'Your TIN (10 digits)',en_lic:'Trade licence number',en_send:'Send for checking',en_pend:'Waiting for the branch to check your payment.',en_ok:'Approved. You can bid.',en_rej:'Not approved: ',en_sent:'Sent to the branch',en_banned:'You cannot bid until {d}: two winning bids were not paid in one budget year.',
  ent_t:'Your lot registrations',es_pending:'Waiting',es_approved:'Approved',es_rejected:'Rejected',es_applied:'Used for purchase',es_refund_due:'Refund due',es_refunded:'Refunded',es_forfeited:'Forfeited',
@@ -720,7 +760,7 @@ Object.assign(T.en,{bk_t:'Branch bank and office',bk_bank:'Bank',bk_acct:'Accoun
  cm_t:'Complaint',cm_btn:'Submit a complaint',cm_d:'You can complain within {n} working days after the lot closes. The branch replies here.',cm_send:'Send',cm_sent:'Complaint sent',cm_re:'Reply:',tie_note:'Equal highest sealed bids. Only the tied bidders may raise their bid until the lot closes again.',
  pr_t:'Bank and office details',pr_d:'Bidders see these on every lot of this branch. Add the bank account for the document fee and sale payment, and the name the CPO must be payable to.',pr_save:'Save',pr_ok:'Saved',o_ent:'Bid registrations to check',o_ref:'Security to return',o_approve:'Approve',o_reject:'Reject',o_refunded:'Returned',o_refund_amt:'Security',o_win_ok:'Approve winner',o_win_no:'Do not approve',o_unclaimed:'Not collected',o_cmp:'Complaints',o_reply:'Reply',
  f_special:'Special sale (up to {n} ETB, no bid security)',f_repeat:'Repeat sale (notice of {n} working days)',f_view:'Viewing days and hours (optional)',ac_prof:'Tax details',ac_pw:'Password'});
-Object.assign(T.am,{bk_t:'የቅርንጫፍ ባንክ እና ቢሮ',bk_bank:'ባንክ',bk_acct:'የሂሳብ ቁጥር',bk_holder:'የሂሳብ ስም',bk_cpo:'ሲፒኦ የሚከፈለው ለ',bk_addr:'የቢሮ አድራሻ',bk_phone:'የቢሮ ስልክ',bk_view:'ዕቃውን የሚታይበት ቀን እና ሰዓት',bk_none:'ይህ ቅርንጫፍ የባንክ መረጃውን እስካሁን አላወጣም።',
+Object.assign(T.am,{mg_ord_wait:'{l} አሸንፈዋል። የቅርንጫፍ ሥራ አስኪያጅ ማረጋገጫ በመጠበቅ ላይ።',mg_ord_pay:'ለ{l} ክፍያ ተፈቅዷል። {n} ብር እስከ {d} ይክፈሉ።',mg_ord_paid:'ለ{l} ክፍያ ተቀብለናል። ዕቃውን እስከ {d} ይረከቡ።',mg_en_ok:'ተፈቅዷል፦ አሁን በ{l} መጫረት ይችላሉ።',mg_en_wait:'ለ{l} ክፍያዎን ቅርንጫፉ እስኪያረጋግጥ በመጠበቅ ላይ።',mg_en_no:'ለ{l} አልተፈቀደም፦',mg_ref_due:'ለ{l} የከፈሉት {n} ብር ማስከበሪያ ይመለሳል።',mg_ref_ok:'ለ{l} ማስከበሪያዎ ተመልሷል።',mg_forf:'ለ{l} ማስከበሪያዎ ተወርሷል።',mg_cmp:'በ{l} ላይ ለቅሬታዎ የተሰጠ መልስ፦',mg_b_ent:'{n} የሚረጋገጡ የጨረታ ምዝገባዎች',mg_b_win:'{n} አሸናፊ(ዎች) የእርስዎን ማረጋገጫ ይጠብቃሉ',mg_b_ref:'{n} የሚመለስ ማስከበሪያ',mg_b_cmp:'{n} የሚመለሱ ቅሬታዎች',bk_t:'የቅርንጫፍ ባንክ እና ቢሮ',bk_bank:'ባንክ',bk_acct:'የሂሳብ ቁጥር',bk_holder:'የሂሳብ ስም',bk_cpo:'ሲፒኦ የሚከፈለው ለ',bk_addr:'የቢሮ አድራሻ',bk_phone:'የቢሮ ስልክ',bk_view:'ዕቃውን የሚታይበት ቀን እና ሰዓት',bk_none:'ይህ ቅርንጫፍ የባንክ መረጃውን እስካሁን አላወጣም።',
  how_t:'በዚህ ዕጣ እንዴት መጫረት ይቻላል',rq_doc:'የጨረታ ሰነድ ክፍያ',rq_doc_v:'{n} ብር፣ አይመለስም',rq_sec:'የጨረታ ማስከበሪያ ({p}%)',rq_sec_v:'{n} ብር በባንክ በተመሰከረ ቼክ ወይም ሲፒኦ',rq_tin:'የግብር ከፋይ ቁጥር (TIN)',rq_lic:'ተፈላጊ የንግድ ፈቃድ',rq_req:'ያስፈልጋል',rq_none:'የጨረታ ማስከበሪያ እና የሰነድ ክፍያ የለም',sp_t:'ልዩ ሽያጭ',
  en_t:'ለዚህ ዕጣ ተመዝገብ',en_btn:'በዚህ ዕጣ ለመጫረት ተመዝገብ',en_again:'እንደገና ተመዝገብ',en_d:'የ{n} ብር የሰነድ ክፍያ ከታች ባለው የቅርንጫፉ የባንክ ሂሳብ ከፍለው ደረሰኙን ያስቀምጡ። ለጨረታ ማስከበሪያ ({p}% = {s} ብር) በባንክ የተመሰከረ ቼክ ወይም ሲፒኦ በተገለጸው ስም ያሰሩ። ከዚያ ዝርዝሩን እዚህ ያስገቡ። ቅርንጫፉ ካረጋገጠ በኋላ መጫረት ይችላሉ።',en_doc:'የሰነድ ክፍያ ደረሰኝ ቁጥር',en_cpo:'የሲፒኦ ወይም ቼክ ቁጥር',en_bank:'ያወጣው ባንክ',en_att:'ዝርዝሮቹ እውነት መሆናቸውን አረጋግጣለሁ፤ የጨረታውን ደንብ እቀበላለሁ።',en_tin:'የእርስዎ TIN (10 አሃዝ)',en_lic:'የንግድ ፈቃድ ቁጥር',en_send:'ለማረጋገጫ ላክ',en_pend:'ቅርንጫፉ ክፍያዎን እስኪያረጋግጥ በመጠበቅ ላይ።',en_ok:'ተፈቅዷል። መጫረት ይችላሉ።',en_rej:'አልተፈቀደም፦ ',en_sent:'ወደ ቅርንጫፉ ተልኳል',en_banned:'እስከ {d} መጫረት አይችሉም፤ በአንድ በጀት ዓመት ሁለት ያሸነፉባቸውን ዕጣዎች አልከፈሉም።',
  ent_t:'የተመዘገቡባቸው ዕጣዎች',es_pending:'በመጠበቅ ላይ',es_approved:'ተፈቅዷል',es_rejected:'ውድቅ ተደርጓል',es_applied:'ለግዢ ውሏል',es_refund_due:'የሚመለስ',es_refunded:'ተመልሷል',es_forfeited:'ተወርሷል',

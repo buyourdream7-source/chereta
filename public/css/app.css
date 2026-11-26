@@ -478,3 +478,32 @@ select.inp{font-size:15px;padding:0 10px}
 .chk{display:flex;gap:10px;align-items:flex-start;margin:12px 0;font-size:14px;line-height:1.4;cursor:pointer}
 .chk input{width:20px;height:20px;margin-top:1px;flex:none;accent-color:var(--brand,#0b6b4d)}
 .bkcard{margin:4px 0 12px}
+.brand img,.brand svg{border-radius:50%!important;object-fit:cover}
+.oc .t2{overflow:hidden}
+.oc .t2 .lgimg{position:absolute;inset:0;width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;border-radius:17px 17px 0 0}
+.oc .t2 .cnt{z-index:2}
+.msgs{display:grid;gap:8px;margin:0 0 14px}
+.msg{display:flex;gap:10px;align-items:flex-start;text-align:left;width:100%;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--surface);font-size:14px;line-height:1.4;box-shadow:var(--shadow)}
+.msg .ic{width:18px;height:18px;flex:none;margin-top:1px}
+.msg.good{border-color:#2f9e6e;background:color-mix(in srgb,#2f9e6e 14%,var(--surface))}
+.msg.warn{border-color:#d99a2b;background:color-mix(in srgb,#d99a2b 14%,var(--surface))}
+.msg.bad{border-color:#d8575a;background:color-mix(in srgb,#d8575a 14%,var(--surface))}
+.msgs{width:100%}.msg{box-sizing:border-box;justify-content:flex-start;width:100%;color:var(--text,inherit)}.msg span{flex:1;min-width:0}
+.banner{min-height:196px}
+.banner>div:first-child{position:relative;z-index:2}
+.port{position:absolute;right:0;bottom:5px;width:min(66%,460px);height:auto;pointer-events:none;-webkit-mask-image:linear-gradient(to right,transparent 0,#000 34%);mask-image:linear-gradient(to right,transparent 0,#000 34%)}
+.port .ship{animation:bob 4s ease-in-out infinite}
+.port .wv{animation:wv 3s linear infinite}.port .w2{animation-duration:4.5s;animation-direction:reverse}
+.port .cx{animation:pcx 9s ease-in-out infinite}
+.port .cab{transform-origin:0 31px;animation:pcab 9s ease-in-out infinite}
+.port .cn{animation:pcn 9s ease-in-out infinite}
+.port .cs{animation:pcs 9s ease-in-out infinite}
+@keyframes bob{50%{transform:translateY(1.6px)}}
+@keyframes wv{to{transform:translateX(60px)}}
+@keyframes pcx{0%,10%,22%{transform:translateX(0)}52%,76%{transform:translateX(-115px)}94%,100%{transform:translateX(0)}}
+@keyframes pcab{0%,10%{transform:scaleY(.54)}24%,50%{transform:scaleY(.14)}62%,74%{transform:scaleY(.41)}86%,94%{transform:scaleY(.14)}100%{transform:scaleY(.54)}}
+@keyframes pcn{0%,10%{transform:translateY(85px);opacity:1}24%,50%{transform:translateY(45px);opacity:1}62%,74%{transform:translateY(72px);opacity:1}76%,95%{transform:translateY(72px);opacity:0}100%{transform:translateY(85px);opacity:1}}
+@keyframes pcs{0%,74%{opacity:0}78%,92%{opacity:1}98%,100%{opacity:0}}
+body{background-image:radial-gradient(620px 320px at 88% -60px,color-mix(in srgb,#2f6df6 20%,transparent),transparent 70%),radial-gradient(520px 320px at -8% 38%,rgba(245,184,46,.08),transparent 70%);background-repeat:no-repeat;background-attachment:fixed}
+@media (prefers-reduced-motion:reduce){.port *{animation:none!important}.port .cn{transform:translateY(72px)}.port .cs{opacity:1}}
+@media (min-width:900px){.banner{min-height:250px}}
